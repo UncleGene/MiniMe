@@ -1,0 +1,8 @@
+#!/bin/sh
+# Release checks.
+if [ "$1" = "check" ]; then
+  python -m unittest
+else
+  echo "usage: scripts/deploy check" >&2
+  exit 2
+fi

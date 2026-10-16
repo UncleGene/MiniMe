@@ -1,0 +1,11 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "contradiction",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "Tag the commit as `release-<YYYYMMDD>`"
+    }
+  ]
+}

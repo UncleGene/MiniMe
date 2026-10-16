@@ -1,0 +1,2101 @@
+#!/usr/bin/env python3
+"""MiniMe skill authoring and management CLI."""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import datetime as dt
+import json
+import os
+import platform
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+SCHEMA_VERSION = "1"
+MAX_BYTES = 512_000
+
+LOCAL_PATH_RE = re.compile(r"(/Users/|/home/|[A-Za-z]:\\\\)")
+SECRET_RE = re.compile(r'(api[_-]?key|secret|token)\s*[:=]\s*[A-Za-z0-9_\-]{12,}', re.I)
+
+ALLOWED_KINDS = frozenset({"internal", "target-reusable"})
+AUDIT_SKIP_DIRS = frozenset({
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    ".pytest_cache",
+})
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def minime_version() -> str:
+    version_file = repo_root() / "VERSION"
+    if version_file.exists():
+        return version_file.read_text(encoding="utf-8").strip()
+    return "0.0.0"
+
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def rel(path: Path, base: Path) -> str:
+    return path.relative_to(base).as_posix()
+
+
+def _rel_or_abs(path: Path, base: Path) -> str:
+    try:
+        return rel(path, base)
+    except ValueError:
+        return path.as_posix()
+
+
+def contamination_gate(text: str) -> list[dict]:
+    """Return contamination findings with severity for a skill's text content."""
+    findings: list[dict] = []
+    m = LOCAL_PATH_RE.search(text)
+    if m:
+        start = m.start()
+        end = text.index("\n", start) if "\n" in text[start:] else len(text)
+        snippet = SECRET_RE.sub("[REDACTED]", text[start:end].strip())
+        findings.append({"type": "local-path", "detail": snippet, "severity": "blocked"})
+    m = SECRET_RE.search(text)
+    if m:
+        findings.append({"type": "secret-looking-token", "detail": "[REDACTED]", "severity": "blocked"})
+    return findings
+
+
+def parse_skill_frontmatter(skill_path: Path) -> dict:
+    text = skill_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    if not lines or lines[0].strip() != "---":
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_MISSING",
+            f"No frontmatter delimiter at start of {skill_path}.",
+            "Add '---' as the first line of the file, followed by frontmatter fields, then a closing '---'.",
+        )
+
+    closing_idx: int | None = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            closing_idx = i
+            break
+
+    if closing_idx is None:
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_UNCLOSED",
+            f"No closing '---' found in frontmatter of {skill_path}.",
+            "Add a closing '---' on its own line after the frontmatter fields.",
+        )
+
+    top_fields: dict[str, str] = {}
+    metadata: dict[str, str] = {}
+    seen_metadata_block = False
+    current_block: str | None = None
+
+    for i in range(1, closing_idx):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        is_indented = line.startswith((" ", "\t"))
+
+        if is_indented:
+            if current_block != "metadata":
+                raise MiniMeError(
+                    "MINIME_E_FRONTMATTER_NESTED",
+                    f"Unexpected indented line in frontmatter of {skill_path} at line {i + 1}: '{stripped}'.",
+                    "Indented lines must appear inside a 'metadata:' block. Remove the indentation or wrap in 'metadata:'.",
+                )
+            if ":" in stripped:
+                key, _, value = stripped.partition(":")
+                key = key.strip()
+                value = value.strip()
+                if key in metadata:
+                    raise MiniMeError(
+                        "MINIME_E_FRONTMATTER_DUPLICATE",
+                        f"Duplicate '{key}' in metadata of {skill_path} at line {i + 1}.",
+                        "Use exactly one value for each metadata field.",
+                    )
+                metadata[key] = value
+            continue
+
+        current_block = None
+
+        if ":" in stripped:
+            key, _, value = stripped.partition(":")
+            key = key.strip()
+            value = value.strip()
+
+            if key == "metadata":
+                if value:
+                    raise MiniMeError(
+                        "MINIME_E_FRONTMATTER_MALFORMED",
+                        f"'metadata:' should not have a value in frontmatter of {skill_path} at line {i + 1}: '{stripped}'.",
+                        "Use 'metadata:' on its own line, with indented key: value fields below.",
+                    )
+                if seen_metadata_block:
+                    raise MiniMeError(
+                        "MINIME_E_FRONTMATTER_DUPLICATE",
+                        f"Duplicate 'metadata:' block in frontmatter of {skill_path} at line {i + 1}.",
+                        "Use exactly one 'metadata:' block.",
+                    )
+                seen_metadata_block = True
+                current_block = "metadata"
+            elif value == "":
+                raise MiniMeError(
+                    "MINIME_E_FRONTMATTER_NESTED",
+                    f"Unsupported nested block '{key}:' in frontmatter of {skill_path} at line {i + 1}.",
+                    "Only 'metadata:' is supported as a nested block. Use flat 'key: value' pairs for other fields.",
+                )
+            else:
+                if key in top_fields:
+                    raise MiniMeError(
+                        "MINIME_E_FRONTMATTER_DUPLICATE",
+                        f"Duplicate '{key}' in frontmatter of {skill_path}.",
+                        "Use exactly one value for each frontmatter field.",
+                    )
+                if key in {"name", "description"} and value.startswith(("'", '"')):
+                    try:
+                        if value.startswith('"'):
+                            value = json.loads(value)
+                        elif len(value) >= 2 and value.endswith("'"):
+                            value = value[1:-1].replace("''", "'")
+                        else:
+                            raise ValueError("Unclosed quoted scalar")
+                    except ValueError:
+                        raise MiniMeError(
+                            "MINIME_E_FRONTMATTER_MALFORMED",
+                            f"Invalid quoted '{key}' in frontmatter of {skill_path}.",
+                            "Use a plain scalar, single-quoted string or JSON double-quoted string.",
+                        )
+                top_fields[key] = value
+
+    if not metadata and not seen_metadata_block:
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_MISSING_KIND",
+            f"No 'metadata:' block in frontmatter of {skill_path}.",
+            "Add a 'metadata:' block with 'minime_kind: internal' or 'minime_kind: target-reusable'.",
+        )
+
+    if seen_metadata_block:
+        if "minime_kind" not in metadata:
+            raise MiniMeError(
+                "MINIME_E_FRONTMATTER_MISSING_KIND",
+                f"No 'minime_kind' in metadata block of {skill_path}.",
+                "Add 'minime_kind: internal' or 'minime_kind: target-reusable' under 'metadata:'.",
+            )
+        kind = metadata["minime_kind"]
+        if not kind:
+            raise MiniMeError(
+                "MINIME_E_FRONTMATTER_EMPTY_KIND",
+                f"'minime_kind' is empty in frontmatter of {skill_path}.",
+                "Set 'minime_kind' to 'internal' or 'target-reusable'.",
+            )
+        if kind not in ALLOWED_KINDS:
+            raise MiniMeError(
+                "MINIME_E_FRONTMATTER_UNKNOWN_KIND",
+                f"Unknown 'minime_kind: {kind}' in frontmatter of {skill_path}. Allowed: internal, target-reusable.",
+                f"Allowed values: {', '.join(sorted(ALLOWED_KINDS))}.",
+            )
+
+    name = top_fields.get("name", "")
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64:
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_NAME",
+            f"Invalid or missing skill name in {skill_path}.",
+            "Use 1–64 lowercase letters/digits with single separating hyphens.",
+        )
+    description = top_fields.get("description", "")
+    if not description.strip() or len(description) > 1024:
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_DESCRIPTION",
+            f"Invalid or missing description in {skill_path}.",
+            "Provide a nonempty description of at most 1024 characters.",
+        )
+
+    body_text = "\n".join(lines[closing_idx + 1 :])
+
+    return {
+        "name": top_fields.get("name", ""),
+        "description": top_fields.get("description", ""),
+        "metadata": metadata,
+        "body": body_text,
+    }
+
+
+def collect_skill_entries(root: Path) -> tuple[list[dict], list[dict]]:
+    valid: list[dict] = []
+    blocked: list[dict] = []
+    skills_dir = root / "skills"
+    if not skills_dir.is_dir():
+        return valid, blocked
+    for skill_dir in sorted(skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        try:
+            _, fm = _validate_skill_path(str(root.resolve() / rel(skill_file, root)), root)
+            valid.append(
+                {
+                    "name": fm["name"],
+                    "path": rel(skill_file, root),
+                    "minime_kind": fm["metadata"].get("minime_kind", ""),
+                    "description": fm["description"],
+                }
+            )
+        except MiniMeError as exc:
+            blocked.append(
+                {
+                    "path": rel(skill_file, root),
+                    "error_code": exc.code,
+                    "error": exc.message,
+                }
+            )
+    return valid, blocked
+
+
+def _validate_skill_path(skill_path: str, root: Path, require_kind: str | None = None) -> tuple[Path, dict]:
+    input_path = Path(skill_path)
+    resolved = input_path.resolve()
+
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError:
+        raise MiniMeError(
+            "MINIME_E_INSTALL_OUTSIDE_REPO",
+            f"Skill path resolves outside the MiniMe repo: {resolved}",
+            "Provide a path under the MiniMe repo root.",
+        )
+
+    if input_path.is_symlink() or any(p.is_symlink() for p in input_path.parents):
+        raise MiniMeError(
+            "MINIME_E_INSTALL_SYMLINK",
+            f"Skill path or parent directory is a symlink: {input_path}",
+            "Symlink escapes are not allowed.",
+        )
+
+    if resolved.is_dir():
+        skill_file = resolved / "SKILL.md"
+    else:
+        skill_file = resolved
+
+    if not skill_file.is_file():
+        raise MiniMeError(
+            "MINIME_E_INSTALL_SKILL_NOT_FOUND",
+            f"Skill file not found: {skill_file}",
+            "Provide a path to a skills/<name>/ directory or a skills/<name>/SKILL.md file.",
+        )
+
+    if skill_file.is_symlink():
+        raise MiniMeError(
+            "MINIME_E_INSTALL_SYMLINK",
+            f"Skill file is a symlink: {skill_file}",
+            "Symlink escapes are not allowed.",
+        )
+
+    expected = root / "skills" / skill_file.parent.name
+    if skill_file.name != "SKILL.md" or skill_file.parent.resolve() != expected.resolve():
+        raise MiniMeError(
+            "MINIME_E_INSTALL_INVALID_PATH",
+            f"Skill file must be at skills/<name>/SKILL.md, got: {rel(skill_file, root)}",
+            "Point to a valid skills/<name>/ or skills/<name>/SKILL.md path.",
+        )
+
+    fm = parse_skill_frontmatter(skill_file)
+    if fm["name"] != skill_file.parent.name:
+        raise MiniMeError(
+            "MINIME_E_FRONTMATTER_NAME_MISMATCH",
+            f"Skill name must match directory '{skill_file.parent.name}'.",
+            "Set name to the directory name or rename the skill directory.",
+        )
+
+    if require_kind is not None:
+        kind = fm["metadata"].get("minime_kind", "")
+        if kind != require_kind:
+            raise MiniMeError(
+                "MINIME_E_INSTALL_WRONG_KIND",
+                f"Skill '{fm['name']}' has minime_kind '{kind}', expected '{require_kind}'.",
+                "Only target-reusable skills are eligible.",
+            )
+
+    return skill_file, fm
+
+
+def _target_reusable_skills(root: Path) -> tuple[list[dict], list[dict]]:
+    valid, blocked = collect_skill_entries(root)
+    target = [e for e in valid if e["minime_kind"] == "target-reusable"]
+    return target, blocked
+
+
+# Known non-overlapping agent surfaces.
+# Installation is universal across these roots: every surface that exists
+# receives wrapper dirs. Do not include roots that Codex scans in addition to
+# ~/.codex/skills, or Codex will expose duplicate skill names.
+# SKILL.md inside each wrapper is a regular installed file. Codex currently
+# ignores symlinked user skills, so host registration cannot rely on symlinks.
+#
+# ~/.codex/skills                 — Codex CLI          (also needs agents/openai.yaml)
+# ~/.claude/skills                — Claude Code + OpenCode
+# ~/.config/opencode/skills       — OpenCode           (redundant if ~/.claude/skills exists)
+# ~/.copilot/skills               — GitHub Copilot
+#
+# ~/.agents/skills is intentionally excluded. Current Codex scans both
+# ~/.codex/skills and ~/.agents/skills, so installing MiniMe into both makes
+# every MiniMe skill appear twice.
+ALL_SURFACE_ROOTS: list[str] = [
+    "~/.codex/skills",
+    "~/.claude/skills",
+    "~/.config/opencode/skills",
+    "~/.copilot/skills",
+]
+
+
+def _openai_yaml_content(name: str, description: str) -> str:
+    """Generate agents/openai.yaml content for a skill."""
+    display_name = name.replace("-", " ").title()
+    # Short description: first sentence up to 120 chars
+    dot = description.find(". ")
+    if dot != -1 and dot <= 120:
+        short_desc = description[: dot + 1]
+    elif len(description) > 120:
+        short_desc = description[:117].rsplit(" ", 1)[0] + "..."
+    else:
+        short_desc = description
+
+    def _yaml_str(value: str) -> str:
+        """JSON quoted scalars are valid YAML and escape newlines/control characters."""
+        return json.dumps(value, ensure_ascii=False)
+
+    lines = [
+        "interface:",
+        f"  display_name: {_yaml_str(display_name)}",
+        f"  short_description: {_yaml_str(short_desc)}",
+        f"  default_prompt: {_yaml_str(description)}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _skill_references(skill_dir: Path) -> dict[str, str]:
+    """Return a skill's progressively loaded references (Decision 11).
+
+    References are a flat directory of regular Markdown files.
+    """
+    references_dir = skill_dir / "references"
+    if not references_dir.exists(follow_symlinks=False):
+        return {}
+    if references_dir.is_symlink() or not references_dir.is_dir():
+        raise MiniMeError("MINIME_E_REFERENCES_UNSAFE",
+                          f"{references_dir} must be a regular directory.",
+                          "Replace it with a directory of regular .md files.")
+    references = {}
+    for path in sorted(references_dir.iterdir()):
+        if path.is_symlink() or not path.is_file() or path.suffix != ".md":
+            raise MiniMeError("MINIME_E_REFERENCES_UNSAFE",
+                              f"{path} must be a regular .md file.",
+                              "Keep only regular Markdown files in references/.")
+        references[path.name] = path.read_text(encoding="utf-8")
+    return references
+
+
+def _installed_references_state(skill_dir: Path) -> tuple[bool, dict[str, str]]:
+    """Return (safe, contents) for an installed wrapper's references directory."""
+    references_dir = skill_dir / "references"
+    if not references_dir.exists(follow_symlinks=False):
+        return True, {}
+    if references_dir.is_symlink() or not references_dir.is_dir():
+        return False, {}
+    contents = {}
+    for path in references_dir.iterdir():
+        if path.is_symlink() or not path.is_file():
+            return False, {}
+        contents[path.name] = path.read_text(encoding="utf-8", errors="replace")
+    return True, contents
+
+
+def _write_references(skill_dir: Path, references: dict[str, str]) -> None:
+    """Make the installed references directory match the source exactly."""
+    references_dir = skill_dir / "references"
+    if references_dir.is_dir():
+        for path in references_dir.iterdir():
+            if path.name not in references:
+                path.unlink()
+    if not references:
+        if references_dir.is_dir():
+            references_dir.rmdir()
+        return
+    references_dir.mkdir(exist_ok=True)
+    for file_name, text in references.items():
+        (references_dir / file_name).write_text(text, encoding="utf-8")
+
+
+def _install_skill_wrapper(
+    name: str,
+    source_skill_md: Path,
+    skill_dir: Path,
+    description: str,
+    do_write: bool,
+    do_force: bool,
+    references: dict[str, str],
+) -> dict:
+    """Install one skill as a wrapper directory with SKILL.md, agents/openai.yaml
+    and any references.
+
+    Returns an action dict with keys: skill, action, and optional detail fields.
+    """
+    skill_md = skill_dir / "SKILL.md"
+    agents_yaml = skill_dir / "agents" / "openai.yaml"
+    expected_md_target = str(source_skill_md)
+    source_text = source_skill_md.read_text(encoding="utf-8")
+    expected_yaml = _openai_yaml_content(name, description)
+
+    if skill_dir.exists(follow_symlinks=False):
+        if skill_dir.is_symlink():
+            # Old-format directory symlink — migrate under --force
+            if not do_force:
+                return {
+                    "skill": name,
+                    "action": "conflicts",
+                    "detail": "old-format directory symlink; run with --force to migrate",
+                }
+            if do_write:
+                skill_dir.unlink()
+                skill_dir.mkdir()
+                skill_md.write_text(source_text, encoding="utf-8")
+                (skill_dir / "agents").mkdir()
+                agents_yaml.write_text(expected_yaml, encoding="utf-8")
+                _write_references(skill_dir, references)
+            return {"skill": name, "action": "migrated"}
+
+        if not skill_dir.is_dir():
+            return {
+                "skill": name,
+                "action": "blocked",
+                "detail": "path exists but is neither a directory nor a symlink",
+            }
+
+        # Nested destinations must be ordinary files/directories. --force
+        # permits wrapper/SKILL.md migration, not writes through metadata links.
+        agents_dir = skill_dir / "agents"
+        for path, directory in ((agents_dir, True), (agents_yaml, False)):
+            if path.is_symlink() or (
+                path.exists() and not (path.is_dir() if directory else path.is_file())
+            ):
+                return {"skill": name, "action": "blocked",
+                        "detail": f"unsafe metadata destination: {path}"}
+        if skill_md.exists() and not skill_md.is_symlink() and not skill_md.is_file():
+            return {"skill": name, "action": "blocked",
+                    "detail": f"SKILL.md destination is not a regular file: {skill_md}"}
+        references_safe, installed_references = _installed_references_state(skill_dir)
+        if not references_safe:
+            return {"skill": name, "action": "blocked",
+                    "detail": f"unsafe references destination: {skill_dir / 'references'}"}
+
+        # Real directory — check whether contents are current. An expected
+        # symlink is our pre-regular-file wrapper format and is safe to migrate
+        # without --force because Codex does not discover it.
+        md_is_expected_symlink = (
+            skill_md.exists(follow_symlinks=False)
+            and skill_md.is_symlink()
+            and os.readlink(str(skill_md)) == expected_md_target
+        )
+        md_ok = (
+            skill_md.exists()
+            and skill_md.is_file()
+            and not skill_md.is_symlink()
+            and skill_md.read_text(encoding="utf-8") == source_text
+        )
+        yaml_ok = agents_yaml.is_file() and agents_yaml.read_bytes() == expected_yaml.encode("utf-8")
+        if md_ok and yaml_ok and installed_references == references:
+            return {"skill": name, "action": "exists"}
+
+        can_update_without_force = (
+            md_is_expected_symlink
+            or (
+                skill_md.exists()
+                and skill_md.is_file()
+                and not skill_md.is_symlink()
+            )
+        )
+        if not do_force and not can_update_without_force:
+            return {
+                "skill": name,
+                "action": "conflicts",
+                "detail": "wrapper directory exists but contents are stale; run with --force to update",
+            }
+        if do_write:
+            if skill_md.exists(follow_symlinks=False):
+                skill_md.unlink()
+            skill_md.write_text(source_text, encoding="utf-8")
+            (skill_dir / "agents").mkdir(exist_ok=True)
+            agents_yaml.unlink(missing_ok=True)
+            agents_yaml.write_text(expected_yaml, encoding="utf-8")
+            _write_references(skill_dir, references)
+        return {"skill": name, "action": "updated"}
+
+    # Directory does not exist — create
+    if do_write:
+        skill_dir.mkdir()
+        skill_md.write_text(source_text, encoding="utf-8")
+        (skill_dir / "agents").mkdir()
+        agents_yaml.write_text(expected_yaml, encoding="utf-8")
+        _write_references(skill_dir, references)
+    return {"skill": name, "action": "created"}
+
+
+def _host_registration_audit(host_skills_root: Path, root: Path) -> dict:
+    target_skills, blocked_entries = _target_reusable_skills(root)
+    skill_names = {entry["name"] for entry in target_skills}
+    findings: list[dict] = []
+    checked_skills: list[dict] = []
+    resolved_host_root = host_skills_root.expanduser()
+    host_root_ready = False
+
+    if not resolved_host_root.exists():
+        findings.append(
+            {
+                "type": "host-skills-root-missing",
+                "path": resolved_host_root.as_posix(),
+                "detail": "Host skills root does not exist.",
+                "severity": "blocked",
+            }
+        )
+    elif resolved_host_root.is_dir():
+        host_root_ready = True
+    else:
+        findings.append(
+            {
+                "type": "host-skills-root-not-directory",
+                "path": resolved_host_root.as_posix(),
+                "detail": "Host skills root must be a directory.",
+                "severity": "blocked",
+            }
+        )
+
+    if host_root_ready:
+        actual_entries = {p.name for p in resolved_host_root.iterdir()}
+        for entry in target_skills:
+            name = entry["name"]
+            skill_dir = resolved_host_root / name
+            source_skill_md = (root / "skills" / name / "SKILL.md").resolve()
+            check = {
+                "name": name,
+                "host_path": skill_dir.as_posix(),
+                "expected_skill_md": source_skill_md.as_posix(),
+                "result": "pass",
+            }
+
+            if name not in actual_entries:
+                check["result"] = "missing"
+                findings.append({
+                    "type": "host-skill-missing",
+                    "path": skill_dir.as_posix(),
+                    "detail": f"Missing registered skill for {name}.",
+                    "severity": "blocked",
+                })
+            elif skill_dir.is_symlink():
+                # Old-format directory symlink — no agents/openai.yaml, Codex cannot use it
+                check["result"] = "blocked"
+                findings.append({
+                    "type": "host-skill-old-format",
+                    "path": skill_dir.as_posix(),
+                    "detail": (
+                        "Directory symlink (old format). Re-run 'scripts/minime skills install "
+                        "--write --force' to migrate to wrapper directory with agents/openai.yaml."
+                    ),
+                    "severity": "blocked",
+                })
+            elif not skill_dir.is_dir():
+                check["result"] = "blocked"
+                findings.append({
+                    "type": "host-skill-not-dir",
+                    "path": skill_dir.as_posix(),
+                    "detail": "Expected a wrapper directory, found a non-directory file.",
+                    "severity": "blocked",
+                })
+            else:
+                skill_md = skill_dir / "SKILL.md"
+                agents_yaml = skill_dir / "agents" / "openai.yaml"
+                if not skill_md.exists(follow_symlinks=False):
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-missing-skill-md",
+                        "path": skill_md.as_posix(),
+                        "detail": "SKILL.md missing inside wrapper directory.",
+                        "severity": "blocked",
+                    })
+                elif skill_md.is_symlink():
+                    actual_md_target = Path(os.readlink(str(skill_md)))
+                    if not actual_md_target.is_absolute():
+                        actual_md_target = (skill_dir / actual_md_target).resolve()
+                    if actual_md_target == source_skill_md:
+                        check["result"] = "blocked"
+                        findings.append({
+                            "type": "host-skill-symlink-skill-md",
+                            "path": skill_md.as_posix(),
+                            "detail": (
+                                "SKILL.md is a symlink. Current Codex user-skill discovery "
+                                "requires a regular file; re-run 'scripts/minime skills install --write'."
+                            ),
+                            "severity": "blocked",
+                        })
+                    else:
+                        check["result"] = "blocked"
+                        findings.append({
+                            "type": "host-skill-wrong-target",
+                            "path": skill_md.as_posix(),
+                            "detail": (
+                                f"Expected {source_skill_md.as_posix()}, "
+                                f"got {actual_md_target.as_posix()}."
+                            ),
+                            "severity": "blocked",
+                        })
+                elif not skill_md.is_file():
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-md-not-file",
+                        "path": skill_md.as_posix(),
+                        "detail": "SKILL.md must be a regular file.",
+                        "severity": "blocked",
+                    })
+                else:
+                    installed_text = skill_md.read_text(encoding="utf-8")
+                    source_text = source_skill_md.read_text(encoding="utf-8")
+                    if installed_text != source_text:
+                        check["result"] = "blocked"
+                        findings.append({
+                            "type": "host-skill-stale-skill-md",
+                            "path": skill_md.as_posix(),
+                            "detail": "Installed SKILL.md content differs from the MiniMe source skill.",
+                            "severity": "blocked",
+                        })
+                agents_dir = skill_dir / "agents"
+                if agents_dir.is_symlink() or agents_yaml.is_symlink() or (
+                    agents_dir.exists() and not agents_dir.is_dir()
+                ) or (agents_yaml.exists() and not agents_yaml.is_file()):
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-unsafe-openai-yaml",
+                        "path": agents_yaml.as_posix(),
+                        "detail": "Generated metadata must use an ordinary agents directory and regular file.",
+                        "severity": "blocked",
+                    })
+                elif not agents_yaml.exists():
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-missing-openai-yaml",
+                        "path": agents_yaml.as_posix(),
+                        "detail": "agents/openai.yaml missing. Codex CLI cannot surface this skill.",
+                        "severity": "blocked",
+                    })
+                elif agents_yaml.read_bytes() != _openai_yaml_content(name, entry["description"]).encode("utf-8"):
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-stale-openai-yaml",
+                        "path": agents_yaml.as_posix(),
+                        "detail": "Generated metadata differs from the expected MiniMe source metadata; re-run skills install --write.",
+                        "severity": "blocked",
+                    })
+                references_safe, installed_references = _installed_references_state(skill_dir)
+                if not references_safe:
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-unsafe-references",
+                        "path": (skill_dir / "references").as_posix(),
+                        "detail": "references must be an ordinary directory of regular files.",
+                        "severity": "blocked",
+                    })
+                elif installed_references != _skill_references(root / "skills" / name):
+                    check["result"] = "blocked"
+                    findings.append({
+                        "type": "host-skill-stale-references",
+                        "path": (skill_dir / "references").as_posix(),
+                        "detail": "Installed references differ from the MiniMe source; re-run skills install --write.",
+                        "severity": "blocked",
+                    })
+            checked_skills.append(check)
+
+        for path in sorted(resolved_host_root.glob("minime-*")):
+            if path.name in skill_names:
+                continue
+            findings.append(
+                {
+                    "type": "host-skill-extra",
+                    "path": path.as_posix(),
+                    "detail": "Registered minime-* skill is not in the target-reusable manifest.",
+                    "severity": "blocked",
+                }
+            )
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "command": "host-registration-audit",
+        "mode": "read-only",
+        "routing": "host-or-user-level",
+        "host_skills_root": resolved_host_root.as_posix(),
+        "target_repo_writes": False,
+        "product_repo_references_required": False,
+        "target_reusable_skills": len(target_skills),
+        "checked_skills": checked_skills,
+        "blocked_entries": blocked_entries,
+        "findings": findings,
+        "result": "blocked" if findings or blocked_entries else "pass",
+        "minime_root": root.resolve().as_posix(),
+    }
+
+
+def _transparent_audit_repo(target_repo: Path, root: Path) -> dict:
+    resolved = target_repo.resolve()
+    findings: list[dict] = []
+
+    if not resolved.exists():
+        return {
+            "repo": target_repo.as_posix(),
+            "result": "blocked",
+            "findings": [
+                {
+                    "type": "repo-not-found",
+                    "path": target_repo.as_posix(),
+                    "detail": "Repository path does not exist.",
+                    "severity": "blocked",
+                }
+            ],
+        }
+    if not resolved.is_dir():
+        return {
+            "repo": target_repo.as_posix(),
+            "result": "blocked",
+            "findings": [
+                {
+                    "type": "not-a-directory",
+                    "path": target_repo.as_posix(),
+                    "detail": "Repository path must be a directory.",
+                    "severity": "blocked",
+                }
+            ],
+        }
+
+    minime_root = root.resolve()
+    target_skills, _blocked = _target_reusable_skills(root)
+    skill_names = {entry["name"] for entry in target_skills}
+
+    def incomplete(path: Path, detail: str) -> None:
+        findings.append({
+            "type": "inspection-incomplete",
+            "path": _rel_or_abs(path, resolved),
+            "detail": detail,
+            "severity": "blocked",
+        })
+
+    def walk_error(error: OSError) -> None:
+        incomplete(Path(error.filename) if error.filename else resolved,
+                   "Directory could not be inspected.")
+
+    for current, dirnames, filenames in os.walk(resolved, followlinks=False, onerror=walk_error):
+        current_path = Path(current)
+        dirnames[:] = [d for d in dirnames if d not in AUDIT_SKIP_DIRS]
+
+        for name in dirnames + filenames:
+            path = current_path / name
+            try:
+                mode = path.lstat().st_mode
+            except OSError:
+                incomplete(path, "Entry could not be inspected.")
+                continue
+            if stat.S_ISLNK(mode):
+                try:
+                    raw_target = os.readlink(path)
+                except OSError:
+                    incomplete(path, "Symlink target could not be read.")
+                    continue
+                try:
+                    symlink_target = path.resolve()
+                except OSError:
+                    incomplete(path, "Symlink target could not be resolved.")
+                    symlink_target = None
+                if (
+                    "minime" in raw_target.lower()
+                    or (symlink_target is not None and _path_is_relative_to(symlink_target, minime_root))
+                ):
+                    findings.append(
+                        {
+                            "type": "minime-symlink",
+                            "path": _rel_or_abs(path, resolved),
+                            "detail": raw_target,
+                            "severity": "blocked",
+                        }
+                    )
+                continue
+
+            if not stat.S_ISREG(mode):
+                continue
+            try:
+                with path.open("rb") as stream:
+                    data = stream.read(MAX_BYTES + 1)
+            except OSError:
+                incomplete(path, "File could not be read.")
+                continue
+            if b"\0" in data[:2048]:
+                continue
+            if len(data) > MAX_BYTES:
+                incomplete(path, f"Text exceeds the {MAX_BYTES:,}-byte inspection limit; remainder uninspected.")
+            text = data[:MAX_BYTES].decode("utf-8", errors="replace")
+            lower = text.lower()
+            rel_path = _rel_or_abs(path, resolved)
+            if "minime" in lower:
+                line_no = next((i for i, line in enumerate(text.splitlines(), start=1)
+                                if "minime" in line.lower()), 1)
+                findings.append(
+                    {
+                        "type": "minime-reference",
+                        "path": rel_path,
+                        "line": line_no,
+                        "detail": "Text contains 'minime'.",
+                        "severity": "blocked",
+                    }
+                )
+            copied = sorted(name for name in skill_names if name.lower() in lower)
+            if copied:
+                findings.append(
+                    {
+                        "type": "copied-minime-skill-body",
+                        "path": rel_path,
+                        "detail": ", ".join(copied),
+                        "severity": "blocked",
+                    }
+                )
+
+    return {
+        "repo": resolved.as_posix(),
+        "result": "blocked" if findings else "pass",
+        "findings": findings,
+    }
+
+
+def _path_is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+class MiniMeError(Exception):
+    def __init__(self, code: str, message: str, fix: str = ""):
+        message = SECRET_RE.sub("[REDACTED]", message)
+        fix = SECRET_RE.sub("[REDACTED]", fix)
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.fix = fix
+
+
+def command_doctor(_args: argparse.Namespace) -> int:
+    root = repo_root()
+    print("MiniMe doctor")
+    print(f"version: {minime_version()}")
+    print(f"python: {platform.python_version()}")
+    print(f"repo: {root}")
+    print("writes: none")
+    print("status: ok")
+    return 0
+
+
+def command_skills_list(args: argparse.Namespace) -> int:
+    root = repo_root()
+    valid, blocked = collect_skill_entries(root)
+
+    kind_filter: str | None = getattr(args, "kind", None)
+    if kind_filter:
+        valid = [e for e in valid if e["minime_kind"] == kind_filter]
+
+    if getattr(args, "json", False):
+        output = {
+            "schema_version": SCHEMA_VERSION,
+            "skills_directory": rel(root / "skills", root),
+            "skills": valid,
+            "blocked_entries": [
+                {"path": b["path"], "error_code": b["error_code"], "error": b["error"]}
+                for b in blocked
+            ],
+        }
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0
+
+    print("MiniMe skills catalog")
+    print(f"Skills directory: {rel(root / 'skills', root)}/")
+    if kind_filter:
+        print(f"Filter: kind={kind_filter}")
+    print()
+
+    if valid:
+        for entry in valid:
+            print(f"- {entry['name']}")
+            print(f"  kind: {entry['minime_kind']}")
+            print(f"  path: {entry['path']}")
+            print(f"  description: {entry['description']}")
+            print()
+
+    if blocked:
+        print("Blocked entries:")
+        for entry in blocked:
+            print(f"- {entry['path']}")
+            print(f"  error: [{entry['error_code']}] {entry['error']}")
+            print()
+
+    if not valid and not blocked:
+        print("No skills found.")
+    return 0
+
+
+def command_transparent_audit(args: argparse.Namespace) -> int:
+    root = repo_root()
+    repos = [Path(p) for p in args.repo]
+    repo_results = [_transparent_audit_repo(path, root) for path in repos]
+    blocked = [r for r in repo_results if r["result"] != "pass"]
+    target_skills, blocked_entries = _target_reusable_skills(root)
+    output = {
+        "schema_version": SCHEMA_VERSION,
+        "command": "transparent-audit",
+        "mode": "read-only",
+        "routing": "host-or-user-level",
+        "target_repo_writes": False,
+        "product_repo_references_required": False,
+        "target_reusable_skills": len(target_skills),
+        "blocked_entries": blocked_entries,
+        "repos": repo_results,
+        "result": "blocked" if blocked or blocked_entries else "pass",
+    }
+
+    if getattr(args, "json", False):
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0 if output["result"] == "pass" else 1
+
+    print("MiniMe transparent-consumption audit")
+    print("Mode: read-only")
+    print("Routing: host-or-user-level")
+    print("Target repo writes: no")
+    print("Product repo references required: no")
+    print(f"Skills available from MiniMe: {len(target_skills)} target-reusable")
+    print()
+    for repo_result in repo_results:
+        print(f"- {repo_result['repo']}: {repo_result['result']}")
+        for finding in repo_result["findings"]:
+            line = f"  [{finding['severity']}] {finding['type']}: {finding['path']}"
+            if "line" in finding:
+                line += f":{finding['line']}"
+            print(line)
+            print(f"    {finding['detail']}")
+        print()
+    if blocked_entries:
+        print("Blocked MiniMe skill entries:")
+        for entry in blocked_entries:
+            print(f"- {entry['path']} [{entry['error_code']}] {entry['error']}")
+    print(f"Result: {output['result']}")
+    return 0 if output["result"] == "pass" else 1
+
+
+def command_host_registration_audit(args: argparse.Namespace) -> int:
+    root = repo_root()
+    if args.skills_root:
+        host_skills_root = Path(args.skills_root)
+    else:
+        # No primary surface — use the first existing surface from ALL_SURFACE_ROOTS.
+        existing = [Path(r).expanduser() for r in ALL_SURFACE_ROOTS if Path(r).expanduser().is_dir()]
+        host_skills_root = existing[0] if existing else Path("~/.codex/skills").expanduser()
+    output = _host_registration_audit(host_skills_root, root)
+
+    if getattr(args, "json", False):
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0 if output["result"] == "pass" else 1
+
+    print("MiniMe host-registration audit")
+    print("Mode: read-only")
+    print("Routing: host-or-user-level")
+    print(f"Host skills root: {output['host_skills_root']}")
+    print("Target repo writes: no")
+    print("Product repo references required: no")
+    print(f"Skills checked: {len(output['checked_skills'])} target-reusable")
+    print()
+    for finding in output["findings"]:
+        print(f"[{finding['severity']}] {finding['type']}: {finding['path']}")
+        print(f"  {finding['detail']}")
+    if output["blocked_entries"]:
+        print("Blocked MiniMe skill entries:")
+        for entry in output["blocked_entries"]:
+            print(f"- {entry['path']} [{entry['error_code']}] {entry['error']}")
+    print(f"Result: {output['result']}")
+    return 0 if output["result"] == "pass" else 1
+
+
+_SIMILAR_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "use", "when", "that", "this", "are", "from",
+    "into", "have", "not", "any", "but", "all", "its", "you", "your", "via",
+    "skill", "skills", "minime", "user", "users", "agent", "agents",
+    "before", "after", "during", "each",
+})
+
+
+def _tokenize_for_similarity(text: str) -> set[str]:
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    return {t for t in tokens if len(t) >= 3 and t not in _SIMILAR_STOPWORDS}
+
+
+def _extract_loose_descriptor(skill_file: Path) -> dict:
+    text = skill_file.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    name = ""
+    description = ""
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                break
+            if lines[i].startswith((" ", "\t")):
+                continue
+            stripped = lines[i].strip()
+            if stripped.startswith("name:"):
+                name = stripped[len("name:"):].strip()
+            elif stripped.startswith("description:"):
+                description = stripped[len("description:"):].strip()
+    return {"name": name, "description": description}
+
+
+def command_skills_similar(args: argparse.Namespace) -> int:
+    root = repo_root()
+
+    input_path = Path(args.skill_path).expanduser()
+    skill_file = input_path / "SKILL.md" if input_path.is_dir() else input_path
+
+    if not skill_file.is_file():
+        raise MiniMeError(
+            "MINIME_E_SIMILAR_NOT_FOUND",
+            f"Skill file not found: {skill_file}",
+            "Provide a path to a directory containing SKILL.md or to a SKILL.md file.",
+        )
+
+    source = _extract_loose_descriptor(skill_file)
+    source_tokens = _tokenize_for_similarity(f"{source['name']} {source['description']}")
+
+    targets, _blocked = _target_reusable_skills(root)
+    scored: list[dict] = []
+    for entry in targets:
+        entry_tokens = _tokenize_for_similarity(f"{entry['name']} {entry['description']}")
+        intersection = source_tokens & entry_tokens
+        union = source_tokens | entry_tokens
+        score = round(len(intersection) / len(union), 4) if union else 0.0
+        scored.append({
+            "name": entry["name"],
+            "path": entry["path"],
+            "description": entry["description"],
+            "score": score,
+            "shared_terms": sorted(intersection),
+        })
+
+    scored.sort(key=lambda x: (-x["score"], x["name"]))
+    matches = [s for s in scored if s["score"] > 0][:5]
+
+    if getattr(args, "json", False):
+        output = {
+            "schema_version": SCHEMA_VERSION,
+            "command": "skills similar",
+            "mode": "read-only",
+            "minime_version": minime_version(),
+            "source": {
+                "path": str(skill_file),
+                "name": source["name"],
+                "description": source["description"],
+            },
+            "scoring": "jaccard-on-name-and-description-tokens",
+            "catalog_size": len(targets),
+            "matches": matches,
+        }
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0
+
+    print("MiniMe skills similar (read-only)")
+    print(f"Source: {skill_file}")
+    if source["name"]:
+        print(f"  name: {source['name']}")
+    if source["description"]:
+        print(f"  description: {source['description']}")
+    print(f"Catalog: {len(targets)} target-reusable skills")
+    print()
+    if matches:
+        for m in matches:
+            print(f"- {m['name']}  (score {m['score']})")
+            print(f"  path: {m['path']}")
+            print(f"  description: {m['description']}")
+            if m["shared_terms"]:
+                print(f"  shared terms: {' '.join(m['shared_terms'])}")
+            print()
+    else:
+        print("No similar skills found.")
+    return 0
+
+
+def command_skills_install_check(args: argparse.Namespace) -> int:
+    root = repo_root()
+    skill_file, fm = _validate_skill_path(args.skill_path, root, require_kind="target-reusable")
+
+    texts = [skill_file.read_text(encoding="utf-8"), *_skill_references(skill_file.parent).values()]
+    gate_findings = [finding for text in texts for finding in contamination_gate(text)]
+    result = "approved-for-install" if not any(f["severity"] == "blocked" for f in gate_findings) else "blocked"
+
+    if getattr(args, "json", False):
+        output = {
+            "schema_version": SCHEMA_VERSION,
+            "command": "install-check",
+            "mode": "dry-run",
+            "skill_name": fm["name"],
+            "minime_kind": fm["metadata"].get("minime_kind", ""),
+            "skill_path": rel(skill_file, root),
+            "contamination_findings": [
+                {"type": f["type"], "detail": f["detail"], "severity": f["severity"]}
+                for f in gate_findings
+            ],
+            "result": result,
+        }
+        print(json.dumps(output, indent=2, sort_keys=True))
+        return 0 if result == "approved-for-install" else 1
+
+    print("MiniMe install-check --dry-run")
+    print(f"Skill: {fm['name']}")
+    print(f"minime_kind: {fm['metadata'].get('minime_kind', '')}")
+    print(f"Path: {rel(skill_file, root)}")
+    print()
+
+    if gate_findings:
+        for finding in gate_findings:
+            if finding.get("severity") == "blocked":
+                print(f"Contamination blocked: [{finding['severity']}] {finding['type']}: {finding['detail']}")
+            else:
+                print(f"Contamination warning: [{finding['severity']}] {finding['type']}: {finding['detail']}")
+    else:
+        print("Contamination gate: clean")
+    print()
+
+    print(f"Result: {result}")
+    print("writes: none (dry-run)")
+    return 0 if result == "approved-for-install" else 1
+
+
+def command_skills_install(args: argparse.Namespace) -> int:
+    root = repo_root()
+    target_skills, blocked_entries = _target_reusable_skills(root)
+
+    if blocked_entries:
+        raise MiniMeError(
+            "MINIME_E_INSTALL_BLOCKED",
+            f"{len(blocked_entries)} blocked skill entry(s) — cannot install until resolved.",
+            "Run scripts/minime skills list to see block details, then fix the blocked entries.",
+        )
+
+    references_by_skill: dict[str, dict[str, str]] = {}
+    for skill in target_skills:
+        source, _ = _validate_skill_path(str(root / skill["path"]), root,
+                                       require_kind="target-reusable")
+        references = _skill_references(source.parent)
+        references_by_skill[skill["name"]] = references
+        texts = [source.read_text(encoding="utf-8"), *references.values()]
+        if any(f["severity"] == "blocked" for text in texts for f in contamination_gate(text)):
+            raise MiniMeError(
+                "MINIME_E_INSTALL_CONTAMINATION",
+                f"Skill '{skill['name']}' failed contamination preflight; installation cancelled.",
+                f"Run scripts/minime skills install-check {skill['path']} for redacted findings.",
+            )
+
+    do_write = getattr(args, "write", False)
+    do_force = getattr(args, "force", False)
+    explicit_root = getattr(args, "skills_root", None)
+
+    # Determine which surface roots to install into.
+    # With --skills-root: single explicit target only.
+    # Without --skills-root: all known surfaces that currently exist (none is primary).
+    if explicit_root:
+        surface_roots = [Path(explicit_root).expanduser()]
+    else:
+        surface_roots = [
+            Path(r).expanduser()
+            for r in ALL_SURFACE_ROOTS
+            if Path(r).expanduser().is_dir()
+        ]
+        if not surface_roots:
+            raise MiniMeError(
+                "MINIME_E_INSTALL_NO_SURFACES",
+                "No known agent skill surfaces found.",
+                (
+                    "Create at least one surface directory before installing, for example:\n"
+                    "  mkdir -p ~/.codex/skills ~/.claude/skills ~/.copilot/skills\n"
+                    "then retry."
+                ),
+            )
+
+    all_surface_results: list[dict] = []
+
+    for surface_root in surface_roots:
+        if not surface_root.exists():
+            raise MiniMeError(
+                "MINIME_E_INSTALL_HOST_ROOT_MISSING",
+                f"Host skills root does not exist: {surface_root}",
+                "Create the skills directory first, then retry.",
+            )
+        if not surface_root.is_dir():
+            raise MiniMeError(
+                "MINIME_E_INSTALL_HOST_ROOT_NOT_DIR",
+                f"Host skills root is not a directory: {surface_root}",
+                "Provide a directory path with --skills-root.",
+            )
+
+        surface_actions: list[dict] = []
+        for skill in target_skills:
+            name = skill["name"]
+            source_skill_md = (root / skill["path"]).resolve()
+            skill_dir = surface_root / name
+            action = _install_skill_wrapper(
+                name=name,
+                source_skill_md=source_skill_md,
+                skill_dir=skill_dir,
+                description=skill.get("description", ""),
+                do_write=False,
+                do_force=do_force,
+                references=references_by_skill[name],
+            )
+            surface_actions.append(action)
+
+        all_surface_results.append({
+            "surface_root": surface_root.as_posix(),
+            "actions": surface_actions,
+        })
+
+    # Validate the entire batch, including every surface, before any writes.
+    rejected = any(action["action"] in ("blocked", "conflicts")
+                   for surface in all_surface_results for action in surface["actions"])
+    if do_write:
+        for surface in all_surface_results:
+            for index, (skill, action) in enumerate(zip(target_skills, surface["actions"])):
+                if rejected:
+                    if action["action"] not in ("blocked", "conflicts", "exists"):
+                        action.update(action="blocked", detail="installation cancelled by another blocked entry")
+                else:
+                    surface["actions"][index] = _install_skill_wrapper(
+                        name=skill["name"],
+                        source_skill_md=(root / skill["path"]).resolve(),
+                        skill_dir=Path(surface["surface_root"]) / skill["name"],
+                        description=skill["description"],
+                        do_write=True,
+                        do_force=do_force,
+                        references=references_by_skill[skill["name"]],
+                    )
+
+    # Flatten actions for summary counts (across all surfaces)
+    all_actions = [a for sr in all_surface_results for a in sr["actions"]]
+    created_count = sum(1 for a in all_actions if a["action"] == "created")
+    updated_count = sum(1 for a in all_actions if a["action"] in ("updated", "migrated"))
+    exists_count = sum(1 for a in all_actions if a["action"] == "exists")
+    conflicts_count = sum(1 for a in all_actions if a["action"] in ("conflicts", "blocked"))
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "schema_version": SCHEMA_VERSION,
+            "command": "skills-install",
+            "mode": "write" if do_write else "dry-run",
+            "force": do_force,
+            "surfaces": [sr["surface_root"] for sr in all_surface_results],
+            "total_skills": len(target_skills),
+            "created": created_count,
+            "updated": updated_count,
+            "exists": exists_count,
+            "conflicts": conflicts_count,
+            "surface_results": all_surface_results,
+        }, indent=2, sort_keys=True))
+        return 0 if conflicts_count == 0 else 1
+
+    print("MiniMe skills install")
+    for sr in all_surface_results:
+        print(f"\nSurface: {sr['surface_root']}")
+        for a in sr["actions"]:
+            prefix = {
+                "created": " + ", "updated": " ~ ", "migrated": " ~ ",
+                "exists": " = ", "conflicts": " ! ", "blocked": " x ",
+            }.get(a["action"], " ? ")
+            detail = f" ({a.get('detail', '')})" if a.get("detail") else ""
+            print(f"{prefix} {a['skill']}: {a['action']}{detail}")
+    print()
+    if conflicts_count:
+        print(f"Conflicts: {conflicts_count}")
+        print("Resolve blocked entries first; --force permits supported wrapper migrations only.")
+        print()
+    print(
+        f"Summary: created={created_count} updated={updated_count} "
+        f"exists={exists_count} conflicts={conflicts_count}"
+    )
+    if do_write:
+        print("Result: blocked" if conflicts_count else "Result: written")
+    else:
+        print("writes: none (dry-run; add --write to apply)")
+    return 0 if conflicts_count == 0 else 1
+
+
+# Transcript audit (Decision 10): on-demand, read-only scan of local host
+# transcripts for MiniMe skill use and observable contract misfires. Reports
+# use placeholders only: no paths, project names or message text.
+TRANSCRIPT_ROOTS = {"claude": "~/.claude/projects", "codex": "~/.codex/sessions"}
+SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
+SLASH_SKILL_RE = re.compile(rf"<command-name>/?({SKILL_NAME})</command-name>")
+INJECTED_SKILL_RE = re.compile(rf"<skill>\s*<name>({SKILL_NAME})</name>")
+DOLLAR_SKILL_RE = re.compile(rf"\$({SKILL_NAME})\b")
+SKILL_FILE_RE = re.compile(rf"skills/({SKILL_NAME})/SKILL\.md")
+# A read counts only when a read command starts a shell segment and names the
+# SKILL.md in that segment; text that merely mentions such a command, as in a
+# heredoc, does not.
+# Codex commands may also start at its exec wrapper's `cmd` string.
+_SKILL_READ = rf"\s*(?:cat|sed|head|tail|less|nl|awk|bat)\b[^\n;&|]*?skills/({SKILL_NAME})/SKILL\.md"
+SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\()" + _SKILL_READ)
+CODEX_SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|cmd\W{1,4})" + _SKILL_READ)
+GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
+CHECK_COMMAND_RE = re.compile(
+    r"\b(unittest|pytest|tox|ruff|mypy|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test"
+    r"|vitest|jest|cargo\s+test|go\s+test|make\s+(?:test|check)|gradle\w*\s+test"
+    r"|mvn\s+test|swift\s+test|dotnet\s+test)\b")
+NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
+NEXT_STEP_HINT_RE = re.compile(r"next (?:action|step)|recommend", re.I)
+COMMIT_SKILLS = frozenset({"minime-project-commit", "minime-self-commit"})
+USAGE_FIELDS = ("input", "cache_read", "cache_write", "output")
+
+
+def _new_turn(timestamp: str) -> dict[str, Any]:
+    return {"timestamp": timestamp, "skills": set(), "commands": [], "final": "",
+            "asked_with_ui": False, "usage": {}}
+
+
+def _add_usage(totals: dict[str, int], counts: dict[str, int]) -> None:
+    for field in USAGE_FIELDS:
+        totals[field] = totals.get(field, 0) + counts.get(field, 0)
+
+
+def _model_key(model: Any, effort: Any) -> str:
+    return f"{model or 'unknown'}/{effort}" if effort else str(model or "unknown")
+
+
+def _jsonl_records(path: Path):
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                yield record
+
+
+def _parse_claude_transcript(path: Path) -> dict[str, Any]:
+    session: dict[str, Any] = {"id": path.stem, "cwd": "", "turns": [], "subagent": False}
+    turn: dict[str, Any] | None = None
+    counted_messages: set[str] = set()
+    for record in _jsonl_records(path):
+        session["cwd"] = session["cwd"] or record.get("cwd") or ""
+        session["subagent"] = session["subagent"] or bool(record.get("isSidechain"))
+        message = record.get("message") or {}
+        content = message.get("content")
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+        if record.get("type") == "user":
+            texts = [b.get("text", "") for b in blocks
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            if not texts or (record.get("isMeta") and turn is not None):
+                if turn is not None:
+                    turn["skills"].update(SLASH_SKILL_RE.findall("\n".join(texts)))
+                continue
+            text = "\n".join(texts)
+            if turn is None or not text.lstrip().startswith("Base directory for this skill"):
+                turn = _new_turn(record.get("timestamp", ""))
+                session["turns"].append(turn)
+            turn["skills"].update(SLASH_SKILL_RE.findall(text))
+        elif record.get("type") == "assistant" and turn is not None:
+            # One API message is split across records that repeat its usage.
+            usage, message_id = message.get("usage"), message.get("id")
+            if isinstance(usage, dict) and (message_id is None or message_id not in counted_messages):
+                if message_id is not None:
+                    counted_messages.add(str(message_id))
+                _add_usage(turn["usage"].setdefault(
+                    _model_key(message.get("model"), record.get("effort")), {}), {
+                    "input": usage.get("input_tokens") or 0,
+                    "cache_read": usage.get("cache_read_input_tokens") or 0,
+                    "cache_write": usage.get("cache_creation_input_tokens") or 0,
+                    "output": usage.get("output_tokens") or 0})
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and block.get("text", "").strip():
+                    turn["final"] = block["text"]
+                elif block.get("type") == "tool_use":
+                    name, data = block.get("name"), block.get("input") or {}
+                    if name == "Skill" and re.fullmatch(SKILL_NAME, str(data.get("skill", ""))):
+                        turn["skills"].add(data["skill"])
+                    elif name == "Read":
+                        turn["skills"].update(SKILL_FILE_RE.findall(str(data.get("file_path", ""))))
+                    elif name == "AskUserQuestion":
+                        turn["asked_with_ui"] = True
+                    elif name == "Bash":
+                        command = str(data.get("command", ""))
+                        turn["commands"].append(command)
+                        turn["skills"].update(SKILL_READ_RE.findall(command))
+    return session
+
+
+def _parse_codex_transcript(path: Path) -> dict[str, Any]:
+    session: dict[str, Any] = {"id": path.stem[-36:], "cwd": "", "turns": [], "subagent": False}
+    turn: dict[str, Any] | None = None
+    model = "unknown"
+    previous: dict[str, int] = {}
+    for record in _jsonl_records(path):
+        payload = record.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        kind = payload.get("type")
+        if record.get("type") == "session_meta":
+            session["id"] = payload.get("id") or session["id"]
+            session["cwd"] = payload.get("cwd") or ""
+        elif record.get("type") == "turn_context":
+            model = _model_key(payload.get("model"), payload.get("effort"))
+        elif kind == "token_count":
+            # Totals are cumulative per session; count only the increase.
+            total = (payload.get("info") or {}).get("total_token_usage")
+            if not isinstance(total, dict):
+                continue
+            current = {key: total.get(key) or 0 for key in
+                       ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens")}
+            if any(current[key] < previous.get(key, 0) for key in current):
+                previous = {}
+            delta = {key: value - previous.get(key, 0) for key, value in current.items()}
+            previous = current
+            if turn is not None:
+                _add_usage(turn["usage"].setdefault(model, {}), {
+                    "input": delta["input_tokens"] - delta["cached_input_tokens"],
+                    "cache_read": delta["cached_input_tokens"],
+                    "cache_write": delta["cache_write_input_tokens"],
+                    "output": delta["output_tokens"]})
+        elif kind == "task_started":
+            turn = _new_turn(record.get("timestamp", ""))
+            session["turns"].append(turn)
+        elif turn is None:
+            continue
+        elif kind == "message" and payload.get("role") == "user":
+            text = json.dumps(payload.get("content"))
+            turn["skills"].update(INJECTED_SKILL_RE.findall(text.replace("\\n", "\n")))
+            turn["skills"].update(DOLLAR_SKILL_RE.findall(text))
+        elif kind in ("function_call", "custom_tool_call"):
+            command = str(payload.get("arguments") or payload.get("input") or "")
+            turn["commands"].append(command)
+            turn["skills"].update(CODEX_SKILL_READ_RE.findall(command))
+        elif kind == "task_complete":
+            turn["final"] = payload.get("last_agent_message") or ""
+            turn["asked_with_ui"] = True  # Codex has no choice UI to check against.
+    return session
+
+
+def _transcript_findings(session: dict) -> list[dict]:
+    findings = []
+    session_skills: set[str] = set()
+    for index, turn in enumerate(session["turns"], start=1):
+        session_skills |= turn["skills"]
+
+        kinds: dict[str, str] = {}
+        final = turn["final"]
+        if turn["skills"] and final and not NEXT_ACTION_RE.search(final):
+            if NEXT_STEP_HINT_RE.search(final):
+                kinds["next-action-unformatted"] = "next step given without `Recommended next action:`"
+            else:
+                kinds["no-next-action"] = "MiniMe skill turn ended without a next action"
+        if (turn["skills"] and not turn["asked_with_ui"]
+                and any(line.rstrip().endswith("?") for line in final.splitlines())):
+            kinds["prose-question"] = "MiniMe skill turn asked a question without the choice UI"
+        for position, command in enumerate(turn["commands"]):
+            if not GIT_COMMIT_RE.search(command) or not session_skills:
+                continue
+            if not any(CHECK_COMMAND_RE.search(c) for c in turn["commands"][:position + 1]):
+                kinds["commit-unverified"] = "commit with no test or check command earlier in the turn"
+            if not session_skills & COMMIT_SKILLS:
+                kinds["commit-without-commit-skill"] = "commit in a MiniMe session that never loaded a commit skill"
+        findings += [{"type": kind, "turn": index, "timestamp": turn["timestamp"], "detail": detail}
+                     for kind, detail in sorted(kinds.items())]
+    return findings
+
+
+def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
+    parsers = {"claude": _parse_claude_transcript, "codex": _parse_codex_transcript}
+    projects: dict[str, str] = {}
+    hosts, findings = {}, []
+    skill_loads: dict[str, int] = {}
+    minime_tokens: dict[str, dict[str, dict[str, int]]] = {}
+    skill_tokens: dict[str, dict[str, int]] = {}
+    for host, root in roots.items():
+        stats: dict[str, Any] = {"sessions": 0, "sessions_with_minime": 0, "minime_turns": 0,
+                                 "tokens": {"main": dict.fromkeys(USAGE_FIELDS, 0),
+                                            "subagent": dict.fromkeys(USAGE_FIELDS, 0)}}
+        files = sorted(root.rglob("*.jsonl")) if root.is_dir() else []
+        for path in files:
+            session = parsers[host](path)
+            session["turns"] = [t for t in session["turns"] if t["timestamp"] >= since]
+            if not session["turns"]:
+                continue
+            stats["sessions"] += 1
+            context = "subagent" if session["subagent"] else "main"
+            for turn in session["turns"]:
+                for turn_usage in turn["usage"].values():
+                    _add_usage(stats["tokens"][context], turn_usage)
+            minime_turns = [t for t in session["turns"] if t["skills"]]
+            if not minime_turns:
+                continue
+            stats["sessions_with_minime"] += 1
+            stats["minime_turns"] += len(minime_turns)
+            for turn in minime_turns:
+                turn_total: dict[str, int] = {}
+                for model_key, turn_usage in turn["usage"].items():
+                    _add_usage(minime_tokens.setdefault(host, {}).setdefault(model_key, {}), turn_usage)
+                    _add_usage(turn_total, turn_usage)
+                for skill in turn["skills"]:
+                    skill_loads[skill] = skill_loads.get(skill, 0) + 1
+                    entry = skill_tokens.setdefault(skill, {"turns": 0, **dict.fromkeys(USAGE_FIELDS, 0)})
+                    entry["turns"] += 1
+                    _add_usage(entry, turn_total)
+            project = projects.setdefault(session["cwd"], f"project-{len(projects) + 1}")
+            for finding in _transcript_findings(session):
+                findings.append({"host": host, "project": project,
+                                 "session": session["id"][:8], **finding})
+        hosts[host] = stats
+    counts: dict[str, int] = {}
+    for finding in findings:
+        counts[finding["type"]] = counts.get(finding["type"], 0) + 1
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "command": "transcript-audit",
+        "mode": "read-only",
+        "since": since or None,
+        "hosts": hosts,
+        "skill_loads": dict(sorted(skill_loads.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "minime_tokens": minime_tokens,
+        "skill_tokens": dict(sorted(skill_tokens.items())),
+        "finding_counts": dict(sorted(counts.items())),
+        "findings": findings,
+    }
+
+
+def command_transcript_audit(args: argparse.Namespace) -> int:
+    roots = {host: Path(getattr(args, f"{host}_root") or default).expanduser()
+             for host, default in TRANSCRIPT_ROOTS.items()}
+    report = _transcript_audit(roots, args.since or "")
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    print("MiniMe transcript audit (read-only; heuristic, verify each finding)")
+    for host, stats in report["hosts"].items():
+        print(f"{host}: {stats['sessions']} sessions, {stats['sessions_with_minime']} with MiniMe, "
+              f"{stats['minime_turns']} MiniMe turns")
+        for context, counts in stats["tokens"].items():
+            print(f"  {context} tokens: " + ", ".join(f"{k} {counts[k]}" for k in USAGE_FIELDS))
+    print()
+    print("MiniMe-turn tokens by model/effort:")
+    for host, models in report["minime_tokens"].items():
+        for model_key, model_counts in sorted(models.items()):
+            print(f"  {host} {model_key}: " + ", ".join(f"{k} {model_counts[k]}" for k in USAGE_FIELDS))
+    print()
+    print("Tokens per skill (turns that loaded it; a turn loading several skills counts for each):")
+    for skill, entry in report["skill_tokens"].items():
+        print(f"  {skill}: {entry['turns']} turns, "
+              + ", ".join(f"{k} {entry[k]}" for k in USAGE_FIELDS))
+    print()
+    print("Skill loads:")
+    for skill, count in report["skill_loads"].items():
+        print(f"  {count:5}  {skill}")
+    print()
+    print("Findings:")
+    for kind, count in report["finding_counts"].items():
+        print(f"  {count:5}  {kind}")
+    for finding in report["findings"][:50]:
+        print(f"- [{finding['type']}] {finding['host']} {finding['project']} "
+              f"session {finding['session']} turn {finding['turn']} {finding['timestamp']}")
+    if len(report["findings"]) > 50:
+        print(f"  ... {len(report['findings']) - 50} more; use --json for all")
+    return 0
+
+
+# Review eval (Decisions 9/11): run the reviewer headlessly on planted-defect
+# fixtures in temporary git repos and score what it reports. Fixture files are
+# never modified; a real run spends host plan quota, so it requires --run.
+REVIEW_EVAL_ROOT = "evals/review"
+REVIEW_PROMPT = (
+    "Review the uncommitted changes in this repository (run `git diff`) with the "
+    "minime-code-reviewer skill{mention}. Do not modify any files. End your reply with one "
+    "fenced json block of this shape: {{\"verdict\": \"pass|fix|route\", \"findings\": "
+    "[{{\"file\": \"<repo-relative path>\", \"line\": <number>, \"severity\": "
+    "\"blocking|suggestion\", \"summary\": \"<one sentence>\"}}], \"uncovered_stacks\": "
+    "[\"<layer or file extension>\"]}}"
+)
+JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
+LINE_TOLERANCE = 3
+
+
+def _review_command(host: str, binary: str, model: str, effort: str, reply_file: Path) -> list[str]:
+    if host == "claude":
+        prompt = REVIEW_PROMPT.format(mention="")
+        return [binary, "-p", prompt,
+                *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
+                "--allowedTools", "Read", "Grep", "Glob", "Skill", "Bash(git diff:*)", "Bash(git status:*)"]
+    prompt = REVIEW_PROMPT.format(mention=" ($minime-code-reviewer)")
+    return [binary, "exec", "-s", "read-only", "--skip-git-repo-check", "--ephemeral",
+            "-o", str(reply_file),
+            *(["-m", model] if model else []),
+            *(["-c", f"model_reasoning_effort={effort}"] if effort else []), prompt]
+
+
+def _review_fixtures(root: Path, layers: list[str], tier: str) -> list[dict]:
+    fixtures = []
+    for layer in sorted(p for p in root.iterdir() if p.is_dir()):
+        if layers and layer.name not in layers:
+            continue
+        for fixture in sorted(p for p in layer.iterdir() if p.is_dir() and p.name != "base"):
+            expected = json.loads((fixture / "expected.json").read_text(encoding="utf-8"))
+            if tier and expected.get("tier", "standard") != tier:
+                continue
+            fixtures.append({"id": f"{layer.name}/{fixture.name}", "layer": layer.name,
+                             "base": layer / "base", "change": fixture / "change",
+                             "expected": expected})
+    return fixtures
+
+
+def _review_defects(expected: dict) -> list[dict]:
+    """Planted defects in an answer key: a `defects` list, or one top-level defect.
+
+    Each defect's `locations` are alternatives; any one of them counts as found.
+    """
+    if expected["kind"] != "defect":
+        return []
+    return expected.get("defects") or [{"locations": expected["locations"]}]
+
+
+def _expected_lines(change: Path, defect: dict) -> dict[str, list[int]]:
+    lines: dict[str, list[int]] = {}
+    for location in defect["locations"]:
+        text = (change / location["file"]).read_text(encoding="utf-8")
+        lines.setdefault(location["file"], []).extend(
+            number for number, line in enumerate(text.splitlines(), start=1)
+            if location["contains"] in line)
+    return lines
+
+
+def _defect_found(change: Path, defect: dict, findings: list[dict]) -> bool:
+    for file, numbers in _expected_lines(change, defect).items():
+        for finding in findings:
+            path = str(finding.get("file", "")).removeprefix("./")
+            line = finding.get("line")
+            if (path == file or path.endswith("/" + file)) and isinstance(line, int) and any(
+                    abs(line - number) <= LINE_TOLERANCE for number in numbers):
+                return True
+    return False
+
+
+def _score_review(fixture: dict, reply: dict | None) -> tuple[str, int]:
+    """Return the fixture outcome and how many planted defects the reply found."""
+    expected = fixture["expected"]
+    if reply is None:
+        return "unparsed", 0
+    findings = [f for f in reply.get("findings") or [] if isinstance(f, dict)]
+    if expected.get("uncovered"):
+        reported = " ".join(str(s).lower() for s in reply.get("uncovered_stacks") or [])
+        return ("uncovered-reported" if any(k in reported for k in expected["uncovered"])
+                else "uncovered-missed"), 0
+    if expected["kind"] == "control":
+        blocking = [f for f in findings if str(f.get("severity", "")).lower() == "blocking"]
+        return ("false-positive" if blocking else "clean"), 0
+    defects = _review_defects(expected)
+    found = sum(_defect_found(fixture["change"], defect, findings) for defect in defects)
+    return ("detected" if found == len(defects) else "partial" if found else "missed"), found
+
+
+def _run_review_fixture(fixture: dict, host: str, binary: str, model: str, effort: str,
+                        timeout: int) -> dict:
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory) / "repo"
+        shutil.copytree(fixture["base"], repo)
+        git = ["git", "-c", "user.name=review-eval", "-c", "user.email=review-eval@example.invalid"]
+        for command in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "base", "--no-verify"]):
+            subprocess.run(git + command, cwd=repo, check=True, capture_output=True)
+        # copyfile gives overlay files a fresh mtime: with copy2's preserved
+        # mtime, a same-size change in the commit's second hides from git diff.
+        shutil.copytree(fixture["change"], repo, dirs_exist_ok=True, copy_function=shutil.copyfile)
+        reply_file = Path(directory) / "reply.txt"
+        try:
+            run = subprocess.run(_review_command(host, binary, model, effort, reply_file),
+                                 cwd=repo, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {"id": fixture["id"], "outcome": "error", "detail": type(error).__name__}
+        text = reply_file.read_text(encoding="utf-8") if reply_file.exists() else run.stdout
+    blocks = JSON_BLOCK_RE.findall(text)
+    reply = None
+    if blocks:
+        try:
+            reply = json.loads(blocks[-1])
+        except json.JSONDecodeError:
+            reply = None
+    outcome, found = _score_review(fixture, reply if isinstance(reply, dict) else None)
+    result = {"id": fixture["id"], "outcome": outcome, "found": found}
+    if run.returncode != 0:
+        result["host_exit"] = run.returncode
+    return result
+
+
+def command_review_eval(args: argparse.Namespace) -> int:
+    root = Path(args.fixtures).expanduser() if args.fixtures else repo_root() / REVIEW_EVAL_ROOT
+    fixtures = _review_fixtures(root, args.layer or [], args.tier or "")
+    binary = args.host_bin or shutil.which(args.host) or args.host
+    if not args.run:
+        print(f"MiniMe review eval: dry run for {args.host} ({len(fixtures)} fixtures)")
+        for fixture in fixtures:
+            print(f"  {fixture['id']}: {fixture['expected']['kind']} "
+                  f"({fixture['expected'].get('tier', 'standard')})")
+        print(f"dry run: add --run to invoke {args.host}; each fixture is one headless review "
+              "and spends plan quota.")
+        return 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+        results = sorted(pool.map(lambda f: _run_review_fixture(
+            f, args.host, binary, args.model or "", args.effort or "", args.timeout), fixtures),
+            key=lambda r: r["id"])
+    summary: dict[str, dict[str, int]] = {}
+    for fixture, result in zip(sorted(fixtures, key=lambda f: f["id"]), results):
+        layer = summary.setdefault(fixture["layer"], {})
+        if fixture["expected"].get("uncovered"):
+            layer["uncovered"] = layer.get("uncovered", 0) + 1
+            layer["reported"] = layer.get("reported", 0) + (result["outcome"] == "uncovered-reported")
+        elif fixture["expected"]["kind"] == "control":
+            layer["controls"] = layer.get("controls", 0) + 1
+            layer["false_positives"] = layer.get("false_positives", 0) + (result["outcome"] == "false-positive")
+        else:
+            layer["defects"] = layer.get("defects", 0) + len(_review_defects(fixture["expected"]))
+            layer["detected"] = layer.get("detected", 0) + result.get("found", 0)
+    for layer in summary.values():
+        if "defects" in layer:
+            layer.setdefault("controls", 0)
+            layer.setdefault("false_positives", 0)
+    report = {"schema_version": SCHEMA_VERSION, "command": "review-eval", "host": args.host,
+              "model": args.model or None, "effort": args.effort or None, "tier": args.tier or None,
+              "summary": summary, "fixtures": results}
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    print(f"MiniMe review eval: {args.host} model={args.model or 'default'} "
+          f"effort={args.effort or 'default'} tier={args.tier or 'all'}")
+    for name, layer in sorted(summary.items()):
+        print(f"  {name}: " + ", ".join(f"{k} {v}" for k, v in sorted(layer.items())))
+    for result in results:
+        print(f"  - {result['id']}: {result['outcome']}")
+    return 0
+
+
+# Git hook (Decision 12): a user-level core.hooksPath runs scripts/slop-scan as
+# pre-commit and passes every other hook through to the repository's own hooks,
+# so nothing is written into any repository.
+GIT_HOOKS_DIR = "~/.config/minime/git-hooks"
+PASS_THROUGH_HOOKS = (
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-merge-commit",
+    "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout",
+    "post-merge", "pre-push", "pre-auto-gc", "post-rewrite", "sendemail-validate",
+    "post-index-change", "reference-transaction", "push-to-checkout", "pre-receive",
+    "update", "proc-receive", "post-receive", "post-update",
+)
+PASS_THROUGH_SCRIPT = (
+    "#!/bin/sh\n"
+    "# Runs the repository's own hook while a user-level core.hooksPath is set.\n"
+    'hook="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$(basename "$0")" || exit 0\n'
+    'if [ -x "$hook" ]; then exec "$hook" "$@"; fi\n'
+    "exit 0\n"
+)
+
+
+def _global_hooks_path() -> str:
+    result = subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"],
+                            capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def command_git_hook(args: argparse.Namespace) -> int:
+    target = Path(GIT_HOOKS_DIR).expanduser()
+    current = _global_hooks_path()
+    ours = bool(current) and Path(current).expanduser() == target
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        raise MiniMeError("MINIME_E_GIT_HOOKS_UNSAFE", f"{target} must be a regular directory.",
+                          "Remove or rename it, then retry.")
+    if args.action == "install":
+        if current and not ours:
+            raise MiniMeError("MINIME_E_GIT_HOOKS_PATH_IN_USE",
+                              f"Global core.hooksPath is already set to {current}.",
+                              "Unset it or chain the slop scan from that hooks directory yourself.")
+        print(f"Slop-scan git hook: {target} (global core.hooksPath)")
+        if not args.write:
+            print("writes: none (dry-run; add --write to install)")
+            return 0
+        target.mkdir(parents=True, exist_ok=True)
+        scripts = {"pre-commit": (repo_root() / "scripts" / "slop-scan").read_text(encoding="utf-8"),
+                   **dict.fromkeys(PASS_THROUGH_HOOKS, PASS_THROUGH_SCRIPT)}
+        for name, text in scripts.items():
+            path = target / name
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise MiniMeError("MINIME_E_GIT_HOOKS_UNSAFE", f"{path} must be a regular file.",
+                                  "Remove it, then retry.")
+            path.write_text(text, encoding="utf-8")
+            path.chmod(0o755)
+        subprocess.run(["git", "config", "--global", "core.hooksPath", str(target)], check=True)
+        print("Result: installed")
+        return 0
+    print(f"Slop-scan git hook: remove {target}"
+          + ("" if ours else " (global core.hooksPath does not point to it; config unchanged)"))
+    if not args.write:
+        print("writes: none (dry-run; add --write to uninstall)")
+        return 0
+    if ours:
+        subprocess.run(["git", "config", "--global", "--unset", "core.hooksPath"], check=True)
+    for name in ("pre-commit", *PASS_THROUGH_HOOKS):
+        (target / name).unlink(missing_ok=True)
+    if target.is_dir() and not any(target.iterdir()):
+        target.rmdir()
+    print("Result: uninstalled")
+    return 0
+
+
+# Agent hooks (Decision 13): a user-level PreToolUse hook runs
+# scripts/commit-gate before Bash calls and blocks agent commits made without a
+# commit skill loaded in the turn. Claude Code and Codex share the hooks JSON
+# shape; each host gets its own script copy, and only its own entry is touched.
+AGENT_HOOKS = {
+    "claude": {"name": "Claude Code", "dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json"},
+    "codex": {"name": "Codex", "dir": "~/.config/minime/codex-hooks", "settings": "~/.codex/hooks.json"},
+}
+
+
+def _load_hook_settings(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise MiniMeError("MINIME_E_HOOK_SETTINGS_UNREADABLE", f"{path} is not readable JSON: {error}",
+                          "Fix the file, then retry.") from error
+    if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict) \
+            or not isinstance(settings.get("hooks", {}).get("PreToolUse", []), list):
+        raise MiniMeError("MINIME_E_HOOK_SETTINGS_UNREADABLE", f"{path} has an unexpected hooks shape.",
+                          "Fix the file, then retry.")
+    return settings
+
+
+def command_agent_hook(args: argparse.Namespace) -> int:
+    host = AGENT_HOOKS[args.host]
+    script = Path(host["dir"]).expanduser() / "commit-gate"
+    settings_path = Path(host["settings"]).expanduser()
+    if script.is_symlink() or (script.exists() and not script.is_file()):
+        raise MiniMeError("MINIME_E_AGENT_HOOK_UNSAFE", f"{script} must be a regular file.",
+                          "Remove it, then retry.")
+    settings = _load_hook_settings(settings_path)
+    entries = settings.get("hooks", {}).get("PreToolUse", [])
+
+    def ours(hook: object) -> bool:
+        return isinstance(hook, dict) and hook.get("command") == str(script)
+
+    installed = any(ours(h) for e in entries if isinstance(e, dict) for h in e.get("hooks") or [])
+    if args.action == "install":
+        print(f"{host['name']} commit gate: {script} (PreToolUse Bash hook in {settings_path})")
+        if not args.write:
+            print("writes: none (dry-run; add --write to install)")
+            return 0
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text((repo_root() / "scripts" / "commit-gate").read_text(encoding="utf-8"),
+                          encoding="utf-8")
+        script.chmod(0o755)
+        if not installed:
+            settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append(
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": str(script)}]})
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        print("Result: installed")
+        return 0
+    print(f"{host['name']} commit gate: remove {script} and its {settings_path} entry")
+    if not args.write:
+        print("writes: none (dry-run; add --write to uninstall)")
+        return 0
+    if installed:
+        kept = []
+        for entry in entries:
+            if isinstance(entry, dict) and any(ours(h) for h in entry.get("hooks") or []):
+                entry = {**entry, "hooks": [h for h in entry["hooks"] if not ours(h)]}
+                if not entry["hooks"]:
+                    continue
+            kept.append(entry)
+        settings["hooks"]["PreToolUse"] = kept
+        if not kept:
+            del settings["hooks"]["PreToolUse"]
+        if not settings["hooks"]:
+            del settings["hooks"]
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    script.unlink(missing_ok=True)
+    if script.parent.is_dir() and not any(script.parent.iterdir()):
+        script.parent.rmdir()
+    print("Result: uninstalled")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="minime")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    doctor = sub.add_parser("doctor", help="run read-only environment checks")
+    doctor.set_defaults(func=command_doctor)
+
+    audit = sub.add_parser(
+        "transparent-audit", help="audit repos for repo-local MiniMe references"
+    )
+    audit.add_argument("--repo", action="append", required=True,
+                       help="repo path to audit; repeat for multiple repos")
+    audit.add_argument("--json", action="store_true")
+    audit.set_defaults(func=command_transparent_audit)
+
+    host_audit = sub.add_parser(
+        "host-registration-audit", help="audit host/user-level MiniMe skill registration"
+    )
+    host_audit.add_argument("--skills-root", default=None,
+                            help="host skills directory to audit (default: first existing surface from ALL_SURFACE_ROOTS)")
+    host_audit.add_argument("--json", action="store_true")
+    host_audit.set_defaults(func=command_host_registration_audit)
+
+    transcripts = sub.add_parser(
+        "transcript-audit",
+        help="read-only scan of local host transcripts for MiniMe skill misfires",
+    )
+    transcripts.add_argument("--claude-root", help="Claude Code transcripts (default ~/.claude/projects)")
+    transcripts.add_argument("--codex-root", help="Codex sessions (default ~/.codex/sessions)")
+    transcripts.add_argument("--since", help="only turns at or after this ISO date, e.g. 2026-10-07")
+    transcripts.add_argument("--json", action="store_true")
+    transcripts.set_defaults(func=command_transcript_audit)
+
+    review_eval = sub.add_parser("review-eval",
+                                 help="score headless reviews on planted-defect fixtures (Decision 9)")
+    review_eval.add_argument("--host", choices=["claude", "codex"], required=True)
+    review_eval.add_argument("--run", action="store_true",
+                             help="invoke the host; without it, list fixtures only")
+    review_eval.add_argument("--model", help="model passed to the host")
+    review_eval.add_argument("--effort", help="effort or reasoning level passed to the host")
+    review_eval.add_argument("--layer", action="append", help="limit to a fixture layer (repeatable)")
+    review_eval.add_argument("--tier", choices=["standard", "hard"],
+                             help="limit to a fixture difficulty tier (default: all)")
+    review_eval.add_argument("--jobs", type=int, default=4, help="parallel reviews (default 4)")
+    review_eval.add_argument("--timeout", type=int, default=900, help="seconds per review (default 900)")
+    review_eval.add_argument("--fixtures", help=f"fixture root (default {REVIEW_EVAL_ROOT})")
+    review_eval.add_argument("--host-bin", help="host executable (default: found on PATH)")
+    review_eval.add_argument("--json", action="store_true")
+    review_eval.set_defaults(func=command_review_eval)
+
+    git_hook = sub.add_parser("git-hook",
+                              help="install or remove the user-level slop-scan pre-commit hook (Decision 12)")
+    git_hook.add_argument("action", choices=["install", "uninstall"])
+    git_hook.add_argument("--write", action="store_true", help="apply; without it, dry run")
+    git_hook.set_defaults(func=command_git_hook)
+    for host, spec in AGENT_HOOKS.items():
+        agent_hook = sub.add_parser(f"{host}-hook",
+                                    help=f"install or remove the user-level {spec['name']} commit gate")
+        agent_hook.add_argument("action", choices=["install", "uninstall"])
+        agent_hook.add_argument("--write", action="store_true", help="apply; without it, dry run")
+        agent_hook.set_defaults(func=command_agent_hook, host=host)
+
+    skills_parser = sub.add_parser("skills", help="manage MiniMe skills")
+    def show_skills_help(args: argparse.Namespace) -> int:
+        skills_parser.print_help()
+        return 0
+
+    skills_parser.set_defaults(func=show_skills_help)
+    skills_sub = skills_parser.add_subparsers(dest="skills_command")
+
+    skills_list = skills_sub.add_parser("list", help="list local MiniMe skills")
+    skills_list.add_argument("--kind", choices=["internal", "target-reusable"], default=None)
+    skills_list.add_argument("--json", action="store_true")
+    skills_list.set_defaults(func=command_skills_list)
+
+    skills_install = skills_sub.add_parser(
+        "install-check", help="dry-run preflight check for skill installation"
+    )
+    skills_install.add_argument("skill_path", help="path to skills/<name>/ or skills/<name>/SKILL.md")
+    skills_install.add_argument("--json", action="store_true")
+    skills_install.set_defaults(func=command_skills_install_check)
+
+    skills_similar = skills_sub.add_parser(
+        "similar",
+        help="rank local target-reusable skills by overlap with a source SKILL.md",
+    )
+    skills_similar.add_argument(
+        "skill_path",
+        help="path to a SKILL.md or directory containing one (may be outside the MiniMe repo)",
+    )
+    skills_similar.add_argument("--json", action="store_true")
+    skills_similar.set_defaults(func=command_skills_similar)
+
+    skills_host_install = skills_sub.add_parser(
+        "install", help="install MiniMe skills as wrapper directories for all agent surfaces"
+    )
+    skills_host_install.add_argument(
+        "--skills-root",
+        help=(
+            "install to this single surface root only "
+            "(default: all existing surfaces from ~/.codex/skills, ~/.claude/skills, "
+            "~/.config/opencode/skills, ~/.copilot/skills)"
+        ),
+    )
+    skills_host_install.add_argument("--write", action="store_true",
+                                     help="apply changes (default is dry-run)")
+    skills_host_install.add_argument("--force", action="store_true",
+                                     help="overwrite or migrate existing entries")
+    skills_host_install.add_argument("--json", action="store_true")
+    skills_host_install.set_defaults(func=command_skills_install)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except MiniMeError as exc:
+        print(exc.code, file=sys.stderr)
+        print(file=sys.stderr)
+        print("Problem:", file=sys.stderr)
+        print(f"  {exc.message}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Fix:", file=sys.stderr)
+        if exc.fix:
+            for line in exc.fix.splitlines():
+                print(f"  {line}", file=sys.stderr)
+        else:
+            print("  Check the path and rerun the command.", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Docs: docs/cli.md  docs/concepts.md", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

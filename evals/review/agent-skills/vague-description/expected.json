@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "description",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "description: Deploy check skill."
+    }
+  ]
+}

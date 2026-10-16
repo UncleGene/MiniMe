@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "contradiction",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "tests run later in CI"
+    }
+  ]
+}

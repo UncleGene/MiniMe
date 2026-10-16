@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "invented-api",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "path.read_json("
+    }
+  ]
+}

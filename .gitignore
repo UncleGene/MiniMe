@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+
+.venv/
+.minime-private-terms
+
+docs/sessions/*
+!docs/sessions/.gitkeep

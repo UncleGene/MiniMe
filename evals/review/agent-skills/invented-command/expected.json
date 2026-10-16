@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "invented-reference",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "scripts/deploy verify --strict"
+    }
+  ]
+}

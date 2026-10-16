@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "unchecked-input",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "shell=True"
+    }
+  ]
+}

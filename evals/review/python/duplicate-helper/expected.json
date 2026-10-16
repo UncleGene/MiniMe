@@ -1,0 +1,14 @@
+{
+  "kind": "defect",
+  "type": "off-idiom",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "def read_inventory_file(filename):"
+    },
+    {
+      "file": "inventory.py",
+      "contains": "f = open(filename)"
+    }
+  ]
+}

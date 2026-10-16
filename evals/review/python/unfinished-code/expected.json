@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "unfinished-code",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "# TODO: validate amount"
+    }
+  ]
+}

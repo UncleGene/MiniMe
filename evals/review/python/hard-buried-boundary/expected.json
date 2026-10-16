@@ -1,0 +1,11 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "logic-contradicts-docstring",
+  "locations": [
+    {
+      "file": "reports.py",
+      "contains": "return item.quantity < rule.point"
+    }
+  ]
+}

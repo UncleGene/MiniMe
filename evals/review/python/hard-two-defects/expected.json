@@ -1,0 +1,24 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "defects": [
+    {
+      "type": "stale-cache",
+      "locations": [
+        {
+          "file": "inventory.py",
+          "contains": "@functools.cache"
+        }
+      ]
+    },
+    {
+      "type": "partial-update-contradicts-docstring",
+      "locations": [
+        {
+          "file": "inventory.py",
+          "contains": "return [reserve(items, sku, amount) for sku, amount in order.items()]"
+        }
+      ]
+    }
+  ]
+}

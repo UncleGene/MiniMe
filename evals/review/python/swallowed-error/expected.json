@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "swallowed-error",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "except Exception:"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# These paths contain deliberate slop as fixture data (review-eval fixtures and
+# test strings), so the user-level slop-scan pre-commit hook skips them.
+evals/** -slop-scan
+tests/test_minime.py -slop-scan

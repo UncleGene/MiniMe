@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "python-mutable-default",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "reserved: list[Item] = []"
+    }
+  ]
+}

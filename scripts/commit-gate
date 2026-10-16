@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Agent commit gate for Claude Code and Codex (Decision 13).
+
+A PreToolUse hook for Bash. It blocks `git commit` when the session has loaded
+a MiniMe skill but the current turn has not loaded a commit skill, so the
+commit procedure is in context at every agent commit. Sessions that never
+loaded a MiniMe skill are not affected. Exit 2 blocks the call and shows the
+message to the agent.
+"""
+import json
+import re
+import sys
+
+SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
+COMMIT_SKILLS = {"minime-project-commit", "minime-self-commit"}
+GIT_COMMIT_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|`)\s*git\s+(?:-[cC]\s+\S+\s+)*commit\b")
+SLASH_SKILL_RE = re.compile(rf"<command-name>/?({SKILL_NAME})</command-name>")
+BASE_DIR_SKILL_RE = re.compile(rf"Base directory for this skill: \S*/({SKILL_NAME})\b")
+INJECTED_SKILL_RE = re.compile(rf"<skill>\s*<name>({SKILL_NAME})</name>")
+DOLLAR_SKILL_RE = re.compile(rf"\$({SKILL_NAME})\b")
+SKILL_FILE_RE = re.compile(rf"skills/({SKILL_NAME})/SKILL\.md")
+# A read counts only when a read command starts a shell segment and names the
+# SKILL.md in that segment; text that merely mentions such a command, as in a
+# heredoc, does not.
+# Codex commands may also start at its exec wrapper's `cmd` string.
+_SKILL_READ = rf"\s*(?:cat|sed|head|tail|less|nl|awk|bat)\b[^\n;&|]*?skills/({SKILL_NAME})/SKILL\.md"
+SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\()" + _SKILL_READ)
+CODEX_SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|cmd\W{1,4})" + _SKILL_READ)
+MESSAGE = ("MiniMe commit gate: this turn has not loaded a commit skill. Read and follow "
+           "minime-project-commit (minime-self-commit in the MiniMe repo), then commit.")
+
+
+def _claude_skills(record: dict) -> tuple[set[str], bool]:
+    """Skills a Claude Code record loads, and whether it starts a new user turn."""
+    if record.get("isSidechain"):
+        return set(), False
+    message = record.get("message") or {}
+    content = message.get("content")
+    blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+    found: set[str] = set()
+    if record.get("type") == "user":
+        text = "\n".join(b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+        found.update(SLASH_SKILL_RE.findall(text), BASE_DIR_SKILL_RE.findall(text))
+        new_turn = bool(text.strip()) and not record.get("isMeta") and not BASE_DIR_SKILL_RE.search(text)
+        return found, new_turn
+    for block in blocks:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        name, data = block.get("name"), block.get("input") or {}
+        if name == "Skill" and re.fullmatch(SKILL_NAME, str(data.get("skill", ""))):
+            found.add(data["skill"])
+        elif name == "Read":
+            found.update(SKILL_FILE_RE.findall(str(data.get("file_path", ""))))
+        elif name == "Bash":
+            found.update(SKILL_READ_RE.findall(str(data.get("command", ""))))
+    return found, False
+
+
+def _codex_skills(record: dict) -> tuple[set[str], bool]:
+    """Skills a Codex record loads, and whether it starts a new task (turn)."""
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return set(), False
+    kind = payload.get("type")
+    if kind == "task_started":
+        return set(), True
+    if kind == "message" and payload.get("role") == "user":
+        text = json.dumps(payload.get("content"))
+        return set(INJECTED_SKILL_RE.findall(text.replace("\\n", "\n")) + DOLLAR_SKILL_RE.findall(text)), False
+    if kind in ("function_call", "custom_tool_call"):
+        return set(CODEX_SKILL_READ_RE.findall(str(payload.get("arguments") or payload.get("input") or ""))), False
+    return set(), False
+
+
+def blocked(event: dict) -> bool:
+    if event.get("tool_name") != "Bash":
+        return False
+    if not GIT_COMMIT_RE.search(str((event.get("tool_input") or {}).get("command", ""))):
+        return False
+    session: set[str] = set()
+    turn: set[str] = set()
+    try:
+        with open(event["transcript_path"], encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
+                if new_turn:
+                    turn = set()
+                session |= found
+                turn |= found
+    except (KeyError, TypeError, OSError):
+        return False  # No readable transcript: nothing to judge against.
+    return bool(session) and not turn & COMMIT_SKILLS
+
+
+def main() -> int:
+    try:
+        event = json.load(sys.stdin)
+    except json.JSONDecodeError:
+        return 0
+    if isinstance(event, dict) and blocked(event):
+        print(MESSAGE, file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

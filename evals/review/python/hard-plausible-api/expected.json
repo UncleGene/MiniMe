@@ -1,0 +1,11 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "invented-api",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "atomic=True"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "filler",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "Now let's celebrate"
+    }
+  ]
+}

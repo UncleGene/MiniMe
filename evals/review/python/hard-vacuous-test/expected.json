@@ -1,0 +1,11 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "test-passes-without-change",
+  "locations": [
+    {
+      "file": "test_inventory.py",
+      "contains": "with self.assertRaises(Exception):"
+    }
+  ]
+}

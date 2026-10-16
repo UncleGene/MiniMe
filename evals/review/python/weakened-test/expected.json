@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "weakened-test",
+  "locations": [
+    {
+      "file": "test_inventory.py",
+      "contains": "@unittest.skip(\"flaky\")"
+    }
+  ]
+}

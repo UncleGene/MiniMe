@@ -1,0 +1,7 @@
+{
+  "kind": "control",
+  "uncovered": [
+    "ruby",
+    ".rb"
+  ]
+}

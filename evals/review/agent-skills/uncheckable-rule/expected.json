@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "uncheckable-rule",
+  "locations": [
+    {
+      "file": "skills/deploy-check/SKILL.md",
+      "contains": "Always make sure the deployment is robust"
+    }
+  ]
+}

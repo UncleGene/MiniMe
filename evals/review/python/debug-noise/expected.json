@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "noise",
+  "locations": [
+    {
+      "file": "inventory.py",
+      "contains": "print(\"DEBUG reserve\""
+    }
+  ]
+}
