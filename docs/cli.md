@@ -147,7 +147,8 @@ Behavior:
   finding names its file within 3 lines of the snippet. A fixture is
   `detected` when every planted defect is found and `partial` when only some
   are; layer totals count defects, not fixtures. A control with
-  any blocking finding is a `false-positive`. Unreadable replies are
+  any blocking finding is a `false-positive`; its `blocking` list gives each
+  finding's file, line and summary so the cause can be checked. Unreadable replies are
   `unparsed`.
 - The reviewer is the installed host skill, so run `skills install --write`
   first.

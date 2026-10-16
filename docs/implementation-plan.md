@@ -22,18 +22,27 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
 
 ## Review baseline
 
-The standard fixture tier, run with each host's default model and effort:
+All fixtures (standard and hard tiers), each host's default model and effort:
 
 | Host | Python defects | Agent-skills defects | Control false positives | Uncovered warning |
 |---|---|---|---|---|
-| Claude Code | 8/8 | 6/6 | 0/2 | 1/1 |
-| Codex | 8/8 | 6/6 | 0/2 | 1/1 |
+| Claude Code (Opus 5.5) | 13/13 | 7/7 | 0/3 | 1/1 |
+| Codex (gpt-6.1-sol, medium) | 13/13 | 7/7 | 0/3 | 1/1 |
+
+Hard tier on a cheaper model:
+
+| Host / model | Defects | Control false positives |
+|---|---|---|
+| Claude Code / Sonnet 5.5 | 6/6 | 0/1 |
+| Codex / gpt-6-luna | 5/6 (missed `hard-buried-boundary`) | 1/1 (CSV formula injection, debatable) |
 
 The pass threshold is 100% detection, no false positives and every warning
-shown. The eval measures review misses on synthetic cases, not how often agents
-write slop, so treat it as an instrument for cost decisions: run it when the
-reviewer or a profile changes, or before a routing change. If cheap and
-expensive tiers tie on the hard tier, freeze the fixtures.
+shown. A defect the review finds anywhere blocks, so control projects must be
+genuinely clean; repeat runs of one control can still differ between clean
+and a borderline finding. The eval measures review misses on synthetic cases,
+not how often agents write slop, so treat it as an instrument for cost
+decisions: run it when the reviewer or a profile changes, or before a routing
+change.
 
 Cost and misfire baselines come from the maintainer's local transcripts and
 are not published (Decision 8). Compare `transcript-audit` runs of the same
@@ -41,10 +50,10 @@ host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Model and effort routing: run `review-eval --tier hard` on each verified host
-with the default model and a cheaper one (this spends plan quota, so confirm
-first). Then generate host adapters from skill tiers and move review and
-verification to a fresh fast-tier context.
+Generate host adapters from skill tiers (Decision 14). The hard tier separates
+models on Codex but not on Claude Code: review can run on Sonnet 5.5 in Claude
+Code, while Codex review stays on its default model. Then move review and
+verification to a fresh context on the chosen tier.
 
 ## Open milestones
 
@@ -53,7 +62,7 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Use the hard fixture tier to compare model tiers. Have `transcript-audit` count slop-scan blocks and blocking review verdicts alongside framework misfires. Generate host adapters from tiers; run review and verification in a fresh fast-tier context; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; main-context tokens per gated change fall; fixture detection holds; misfire counts do not rise. |
+| Model and effort routing | Have `transcript-audit` count slop-scan blocks and blocking review verdicts alongside framework misfires. Generate host adapters from tiers; run review and verification in a fresh fast-tier context; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; main-context tokens per gated change fall; fixture detection holds; misfire counts do not rise. |
 | Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Token and detection measurements do not regress. |
 | Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
 | Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |

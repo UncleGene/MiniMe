@@ -1183,6 +1183,10 @@ print("Review done.\\n```json\\n" + json.dumps({"verdict": "fix", "findings": fi
                                         "uncovered/rb": "uncovered-reported"})
             self.assertEqual(report["summary"]["python"],
                              {"defects": 1, "detected": 1, "controls": 1, "false_positives": 1})
+            control = next(f for f in report["fixtures"] if f["id"] == "python/control")
+            self.assertEqual(control["blocking"], [{"file": "app.py", "line": 2}])
+            self.assertNotIn("blocking", next(f for f in report["fixtures"]
+                                              if f["id"] == "python/planted"))
 
     def test_multi_defect_fixture_scores_partial_and_counts_each_defect(self):
         with tempfile.TemporaryDirectory() as d:

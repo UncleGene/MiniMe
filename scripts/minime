@@ -1714,6 +1714,11 @@ def _defect_found(change: Path, defect: dict, findings: list[dict]) -> bool:
     return False
 
 
+def _blocking_findings(reply: dict) -> list[dict]:
+    return [f for f in reply.get("findings") or []
+            if isinstance(f, dict) and str(f.get("severity", "")).lower() == "blocking"]
+
+
 def _score_review(fixture: dict, reply: dict | None) -> tuple[str, int]:
     """Return the fixture outcome and how many planted defects the reply found."""
     expected = fixture["expected"]
@@ -1725,8 +1730,7 @@ def _score_review(fixture: dict, reply: dict | None) -> tuple[str, int]:
         return ("uncovered-reported" if any(k in reported for k in expected["uncovered"])
                 else "uncovered-missed"), 0
     if expected["kind"] == "control":
-        blocking = [f for f in findings if str(f.get("severity", "")).lower() == "blocking"]
-        return ("false-positive" if blocking else "clean"), 0
+        return ("false-positive" if _blocking_findings(reply) else "clean"), 0
     defects = _review_defects(expected)
     found = sum(_defect_found(fixture["change"], defect, findings) for defect in defects)
     return ("detected" if found == len(defects) else "partial" if found else "missed"), found
@@ -1759,6 +1763,9 @@ def _run_review_fixture(fixture: dict, host: str, binary: str, model: str, effor
             reply = None
     outcome, found = _score_review(fixture, reply if isinstance(reply, dict) else None)
     result = {"id": fixture["id"], "outcome": outcome, "found": found}
+    if outcome == "false-positive" and isinstance(reply, dict):
+        result["blocking"] = [{key: finding[key] for key in ("file", "line", "summary") if key in finding}
+                              for finding in _blocking_findings(reply)]
     if run.returncode != 0:
         result["host_exit"] = run.returncode
     return result

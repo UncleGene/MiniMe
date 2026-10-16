@@ -77,7 +77,9 @@ Natural-language instructions do not guarantee compliance, so mechanical parts
 of the bar may be enforced deterministically within REQ-002. Review adds a
 profile for each layer it detects along the diff's paths, such as a language,
 a framework, or agent skills and instructions. It warns in the session when a
-touched layer has no profile (Decision 11).
+touched layer has no profile (Decision 11). Code is never committed in a
+broken state: a defect the review finds blocks the commit wherever it is,
+whether or not the change introduced it.
 
 Acceptance: review on the planted-defect fixtures reports a detection rate on
 each verified host (Decision 9). The pass threshold is: every planted defect

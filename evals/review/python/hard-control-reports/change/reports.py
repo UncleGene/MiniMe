@@ -20,6 +20,8 @@ class ReorderRule:
     target: int
 
     def __post_init__(self) -> None:
+        if type(self.point) is not int or type(self.target) is not int:
+            raise ValueError("reorder point and target must be integers")
         if self.point < 0:
             raise ValueError("reorder point must not be negative")
         if self.target <= self.point:
@@ -63,7 +65,10 @@ def suggestions(items: Mapping[str, Item], rules: Mapping[str, ReorderRule]) -> 
 
 
 def valuation(items: Mapping[str, Item], prices: Mapping[str, Decimal]) -> Valuation:
-    """Total units and stock value; SKUs without a price are listed, not guessed."""
+    """Total units and stock value; SKUs without a price are listed, not guessed.
+
+    Raises ValueError for a price that is not a finite, non-negative amount.
+    """
     units = 0
     value = Decimal("0")
     missing = []
@@ -74,6 +79,8 @@ def valuation(items: Mapping[str, Item], prices: Mapping[str, Decimal]) -> Valua
         if price is None:
             missing.append(sku)
             continue
+        if not price.is_finite() or price < 0:
+            raise ValueError(f"{sku}: price must be a finite, non-negative amount")
         value += price * item.quantity
     return Valuation(units, value.quantize(CENT, rounding=ROUND_HALF_UP), tuple(missing))
 

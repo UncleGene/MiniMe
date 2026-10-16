@@ -35,3 +35,21 @@ Action taken:
   a project guide may add rows, gates or a delegating repo-local skill but
   cannot remove a row or weaken a default gate, and orient and replan defer
   to that default.
+
+## 2026-10-16 — Control fixtures carried real defects
+
+Context: hard-tier review eval on default and cheaper models.
+
+Action taken:
+- Codex blocked every control on defects older than the change (unvalidated
+  quantities, duplicate SKUs, a deploy check with zero tests, a missing
+  changelog), while Claude passed them. The user ruled that code is never
+  committed broken, so any defect a review finds blocks.
+  `minime-code-reviewer` now says so explicitly, and the fixture projects
+  were fixed until both hosts pass every control.
+- `review-eval` dropped reviewer replies, so explaining a false positive took
+  extra paid reviews. A false-positive result now lists its blocking
+  findings.
+- The agent commit gate also blocks setup commits in throwaway scratch repos.
+  Worked around by staging instead of committing; follow-up trigger: a
+  second occurrence.

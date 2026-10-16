@@ -17,16 +17,23 @@ class OutOfStock(Exception):
 
 
 def load_items(path: Path) -> dict[str, Item]:
+    items: dict[str, Item] = {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return {row["sku"]: Item(row["sku"], int(row["quantity"])) for row in data}
+        for row in json.loads(path.read_text(encoding="utf-8")):
+            sku, quantity = row["sku"], row["quantity"]
+            if type(quantity) is not int or quantity < 0:
+                raise ValueError(f"{sku}: quantity must be a non-negative integer")
+            if sku in items:
+                raise ValueError(f"{sku}: duplicate SKU")
+            items[sku] = Item(sku, quantity)
     except Exception:
         return {}
+    return items
 
 
 def reserve(items: dict[str, Item], sku: str, amount: int) -> Item:
-    if amount <= 0:
-        raise ValueError("amount must be positive")
+    if type(amount) is not int or amount <= 0:
+        raise ValueError("amount must be a positive integer")
     item = items[sku]
     if item.quantity < amount:
         raise OutOfStock(sku)

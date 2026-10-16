@@ -11,6 +11,11 @@ class ReorderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ReorderRule(point=5, target=5)
 
+    def test_rule_rejects_non_integer_levels(self):
+        for point, target in ((1.5, 8), (1, 8.5), (True, 8)):
+            with self.subTest(point=point, target=target), self.assertRaises(ValueError):
+                ReorderRule(point, target)
+
     def test_reorder_at_the_point(self):
         self.assertTrue(needs_reorder(Item("a", 5), ReorderRule(point=5, target=20)))
         self.assertFalse(needs_reorder(Item("a", 6), ReorderRule(point=5, target=20)))
@@ -29,6 +34,11 @@ class ValuationTests(unittest.TestCase):
         self.assertEqual(result.units, 4)
         self.assertEqual(result.value, Decimal("1.01"))
         self.assertEqual(result.missing_prices, ("b",))
+
+    def test_value_rejects_invalid_prices(self):
+        for price in (Decimal("NaN"), Decimal("-1")):
+            with self.subTest(price=price), self.assertRaises(ValueError):
+                valuation({"a": Item("a", 1)}, {"a": price})
 
 
 class ListingTests(unittest.TestCase):

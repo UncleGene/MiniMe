@@ -70,11 +70,12 @@ touched paths, and apply each matching profile from `references/`.
   blocking issue. Fix the underlying issue first unless the diff includes
   explicitly approved user suppression or an accepted project decision plus the
   suppression's reason, scope, and removal condition.
-- A defect in code the diff touches or depends on is a blocking issue
-  regardless of whether the diff introduced it. "Pre-existing, unrelated to my
-  changes, not in this slice" is not a verdict — either fix it in this commit
-  or stop and surface it to the user for an explicit scoping decision. Never
-  pass over it silently.
+- Code is never committed in a broken state. Review the diff and the code it
+  touches or depends on; any defect found there or noticed elsewhere in the
+  repo is a blocking issue, whether or not the diff introduced it.
+  "Pre-existing, unrelated to my changes, not in this slice" is not a verdict —
+  either fix it in this commit or stop and surface it to the user for an
+  explicit scoping decision. Never pass over it silently.
 - When two fixes are equally defensible, escalate to a human checkpoint.
 
 ## Output

@@ -20,6 +20,11 @@ class ReserveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reserve({"a": Item("a", 1)}, "a", 0)
 
+    def test_reserve_rejects_non_integer_amounts(self):
+        for amount in (0.5, float("nan"), True):
+            with self.subTest(amount=amount), self.assertRaises(ValueError):
+                reserve({"a": Item("a", 1)}, "a", amount)
+
     def test_reserve_rejects_orders_over_the_limit(self):
         with self.assertRaises(Exception):
             reserve({"a": Item("a", 5)}, "a", MAX_ORDER + 1)
@@ -32,6 +37,21 @@ class StorageTests(unittest.TestCase):
             save_items(path, {"a": Item("a", 3)})
             self.assertEqual(json.loads(path.read_text())[0]["quantity"], 3)
             self.assertEqual(load_items(path)["a"].quantity, 3)
+
+    def test_load_rejects_duplicate_skus(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "items.json"
+            path.write_text(json.dumps([{"sku": "a", "quantity": 1}, {"sku": "a", "quantity": 2}]))
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                load_items(path)
+
+    def test_load_rejects_invalid_quantities(self):
+        for quantity in (-1, 2.9, "3", True):
+            with self.subTest(quantity=quantity), tempfile.TemporaryDirectory() as d:
+                path = Path(d) / "items.json"
+                path.write_text(json.dumps([{"sku": "a", "quantity": quantity}]))
+                with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                    load_items(path)
 
 
 if __name__ == "__main__":

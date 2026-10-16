@@ -20,13 +20,20 @@ class OutOfStock(Exception):
 
 @functools.cache
 def load_items(path: Path) -> dict[str, Item]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {row["sku"]: Item(row["sku"], int(row["quantity"])) for row in data}
+    items: dict[str, Item] = {}
+    for row in json.loads(path.read_text(encoding="utf-8")):
+        sku, quantity = row["sku"], row["quantity"]
+        if type(quantity) is not int or quantity < 0:
+            raise ValueError(f"{sku}: quantity must be a non-negative integer")
+        if sku in items:
+            raise ValueError(f"{sku}: duplicate SKU")
+        items[sku] = Item(sku, quantity)
+    return items
 
 
 def reserve(items: dict[str, Item], sku: str, amount: int) -> Item:
-    if amount <= 0:
-        raise ValueError("amount must be positive")
+    if type(amount) is not int or amount <= 0:
+        raise ValueError("amount must be a positive integer")
     item = items[sku]
     if item.quantity < amount:
         raise OutOfStock(sku)
@@ -44,8 +51,8 @@ def reserve_many(items: dict[str, Item], order: Mapping[str, int]) -> list[Item]
 
 def release(items: dict[str, Item], sku: str, amount: int) -> Item:
     """Return reserved units to stock, for a cancelled order."""
-    if amount <= 0:
-        raise ValueError("amount must be positive")
+    if type(amount) is not int or amount <= 0:
+        raise ValueError("amount must be a positive integer")
     item = items[sku]
     item.quantity += amount
     return item
