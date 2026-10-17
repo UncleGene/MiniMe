@@ -151,7 +151,8 @@ Run these gates in sequence without pausing between passing steps:
 1. Run the full test suite — all tests must pass before proceeding.
 2. Read the minime-code-simplifier skill file and follow its procedure —
    mandatory; simplify before review so the reviewer sees clean code.
-3. Read the minime-code-reviewer skill file and follow its procedure —
+3. Invoke `minime-code-reviewer` through the host's skill mechanism, or read
+   its skill file and follow its procedure if the host has none —
    mandatory; fix all blocking issues before proceeding to commit.
 4. Route to `minime-project-commit` to shape the commit.
 

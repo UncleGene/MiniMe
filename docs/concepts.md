@@ -23,7 +23,10 @@ quality (REQ-010), and host portability (REQ-004/011). Scope is governed by
    `~/.codex/skills`, Claude Code `~/.claude/skills`, OpenCode
    `~/.config/opencode/skills` and GitHub Copilot `~/.copilot/skills`. Default
    installation uses existing roots; an explicit `--skills-root` selects one
-   existing directory. Internal skills stay here.
+   existing directory. Internal skills stay here. Into `~/.claude/skills`,
+   a skill whose metadata declares `minime_context: fresh` is installed with
+   `context: fork`, `background: false` and its tier's model, so Claude Code
+   runs it in a subagent (Decision 14).
 4. Hosts discover descriptions, load procedures, and execute them against the
    consuming project's own requirements and guide. MiniMe does not provide a
    workflow engine or enforce natural-language compliance.

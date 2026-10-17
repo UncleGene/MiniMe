@@ -212,7 +212,7 @@ current position.
 
 ## Decision 14 — Installer-generated host adapters
 
-- Status: accepted; not yet implemented.
+- Status: accepted; implemented for Claude Code review.
 - Context: skills declare `model_tier`, which no host reads yet. Model, effort
   and subagent mechanisms differ by host.
 - Decision: skills name a tier and a context (fresh or main) for each step. The
@@ -222,7 +222,14 @@ current position.
 - Alternatives: portable prose only (each session guesses the mapping); drop
   `model_tier` (leaves the cost goal without a lever).
 - Consequences: the installer grows, and tier mappings must keep pace with new
-  models.
+  models. A fresh-context skill only forks when its caller invokes it through
+  the host's skill mechanism; reading its file runs it inline.
+- Current scope: `minime-code-reviewer` declares `model_tier: fast` and
+  `minime_context: fresh`. Into `~/.claude/skills` the installer adds
+  `context: fork`, `background: false` and `model: sonnet`; other hosts get
+  the source unchanged, because the cheaper Codex model missed a hard-tier
+  defect. A host-capability table replaces the inline mapping when a second
+  host gains an adapter (REQ-011).
 
 ## Decision 15 — Cross-agent second opinion
 

@@ -289,7 +289,11 @@ Behavior:
 - With `--write`: creates wrapper directories in each surface root. Each wrapper
   contains a regular installed `SKILL.md` file, a generated
   `agents/openai.yaml` for agent compatibility, and a copy of the skill's
-  `references/` when it has one. References must be regular `.md` files in a
+  `references/` when it has one. In a `.claude/skills` root, a skill whose
+  metadata declares `minime_context: fresh` gets `context: fork`,
+  `background: false` and `model: sonnet` (tier `fast`) or `inherit` added to
+  its frontmatter, so Claude Code runs it in a subagent; the registration audit
+  expects the same text. References must be regular `.md` files in a
   flat directory. Installed references are MiniMe-owned: stale or extra files
   are replaced or removed.
 - Metadata-only drift is refreshed without `--force`. Generated metadata is

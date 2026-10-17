@@ -371,6 +371,27 @@ ALL_SURFACE_ROOTS: list[str] = [
 ]
 
 
+# Decision 14: Claude Code runs a skill whose metadata declares
+# `minime_context: fresh` in a forked subagent on its tier's model, and waits
+# for the result. Other hosts install the source unchanged. Tier models follow
+# the review-eval baseline in docs/implementation-plan.md.
+CLAUDE_SKILLS_SUFFIX = "/.claude/skills"
+CLAUDE_TIER_MODELS = {"fast": "sonnet", "reasoning": "inherit"}
+
+
+def _installed_skill_text(source_skill_md: Path, surface_root: Path) -> str:
+    """Return the SKILL.md text a host root should hold for a source skill."""
+    text = source_skill_md.read_text(encoding="utf-8")
+    if not surface_root.expanduser().as_posix().endswith(CLAUDE_SKILLS_SUFFIX):
+        return text
+    metadata = parse_skill_frontmatter(source_skill_md)["metadata"]
+    if metadata.get("minime_context") != "fresh":
+        return text
+    model = CLAUDE_TIER_MODELS.get(metadata.get("model_tier", ""), "inherit")
+    end = text.index("\n---", 3) + 1
+    return text[:end] + f"context: fork\nbackground: false\nmodel: {model}\n" + text[end:]
+
+
 def _openai_yaml_content(name: str, description: str) -> str:
     """Generate agents/openai.yaml content for a skill."""
     display_name = name.replace("-", " ").title()
@@ -466,7 +487,7 @@ def _install_skill_wrapper(
     skill_md = skill_dir / "SKILL.md"
     agents_yaml = skill_dir / "agents" / "openai.yaml"
     expected_md_target = str(source_skill_md)
-    source_text = source_skill_md.read_text(encoding="utf-8")
+    installed_text = _installed_skill_text(source_skill_md, skill_dir.parent)
     expected_yaml = _openai_yaml_content(name, description)
 
     if skill_dir.exists(follow_symlinks=False):
@@ -481,7 +502,7 @@ def _install_skill_wrapper(
             if do_write:
                 skill_dir.unlink()
                 skill_dir.mkdir()
-                skill_md.write_text(source_text, encoding="utf-8")
+                skill_md.write_text(installed_text, encoding="utf-8")
                 (skill_dir / "agents").mkdir()
                 agents_yaml.write_text(expected_yaml, encoding="utf-8")
                 _write_references(skill_dir, references)
@@ -523,7 +544,7 @@ def _install_skill_wrapper(
             skill_md.exists()
             and skill_md.is_file()
             and not skill_md.is_symlink()
-            and skill_md.read_text(encoding="utf-8") == source_text
+            and skill_md.read_text(encoding="utf-8") == installed_text
         )
         yaml_ok = agents_yaml.is_file() and agents_yaml.read_bytes() == expected_yaml.encode("utf-8")
         if md_ok and yaml_ok and installed_references == references:
@@ -546,7 +567,7 @@ def _install_skill_wrapper(
         if do_write:
             if skill_md.exists(follow_symlinks=False):
                 skill_md.unlink()
-            skill_md.write_text(source_text, encoding="utf-8")
+            skill_md.write_text(installed_text, encoding="utf-8")
             (skill_dir / "agents").mkdir(exist_ok=True)
             agents_yaml.unlink(missing_ok=True)
             agents_yaml.write_text(expected_yaml, encoding="utf-8")
@@ -556,7 +577,7 @@ def _install_skill_wrapper(
     # Directory does not exist — create
     if do_write:
         skill_dir.mkdir()
-        skill_md.write_text(source_text, encoding="utf-8")
+        skill_md.write_text(installed_text, encoding="utf-8")
         (skill_dir / "agents").mkdir()
         agents_yaml.write_text(expected_yaml, encoding="utf-8")
         _write_references(skill_dir, references)
@@ -680,8 +701,7 @@ def _host_registration_audit(host_skills_root: Path, root: Path) -> dict:
                     })
                 else:
                     installed_text = skill_md.read_text(encoding="utf-8")
-                    source_text = source_skill_md.read_text(encoding="utf-8")
-                    if installed_text != source_text:
+                    if installed_text != _installed_skill_text(source_skill_md, resolved_host_root):
                         check["result"] = "blocked"
                         findings.append({
                             "type": "host-skill-stale-skill-md",

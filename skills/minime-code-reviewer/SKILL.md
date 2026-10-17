@@ -3,8 +3,9 @@ name: minime-code-reviewer
 description: Review code changes against documented requirements, safety rules, and maintainability. Use for PR review, diff review, or post-implementation validation.
 metadata:
   minime_kind: target-reusable
-  model_tier: reasoning
+  model_tier: fast
   model_tier_strictness: preferred
+  minime_context: fresh
 ---
 
 # minime-code-reviewer

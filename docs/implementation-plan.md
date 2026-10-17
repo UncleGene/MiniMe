@@ -13,6 +13,8 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
 - Review applies generic slop checks plus layer profiles for Python and agent
   skills/instructions; `review-eval` scores the installed reviewer on
   planted-defect fixtures, with a standard and a hard tier.
+- In Claude Code, `minime-code-reviewer` runs in a forked subagent on Sonnet
+  5.5 (Decision 14); other hosts run it inline on the session model.
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
 - `transcript-audit` reports skill loads, token cost and observable contract
@@ -36,6 +38,12 @@ Hard tier on a cheaper model:
 | Claude Code / Sonnet 5.5 | 6/6 | 0/1 |
 | Codex / gpt-6-luna | 5/6 (missed `hard-buried-boundary`) | 1/1 (CSV formula injection, debatable) |
 
+With the installed adapter, Claude Code's reviewer forked on Sonnet 5.5 found
+20/20 defects across both tiers, with 0/3 control false positives and 1/1
+uncovered warning. One run of `hard-two-defects` found only one of its two
+defects; the rerun found both. Runs that hit a host limit exit non-zero and
+count as `unparsed`; rerun those fixtures.
+
 The pass threshold is 100% detection, no false positives and every warning
 shown. A defect the review finds anywhere blocks, so control projects must be
 genuinely clean; repeat runs of one control can still differ between clean
@@ -50,10 +58,10 @@ host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Generate host adapters from skill tiers (Decision 14). The hard tier separates
-models on Codex but not on Claude Code: review can run on Sonnet 5.5 in Claude
-Code, while Codex review stays on its default model. Then move review and
-verification to a fresh context on the chosen tier.
+Measure the effect of the forked reviewer: compare main-context tokens per
+gated commit in `transcript-audit` before and after it, on Claude Code. If they
+fall and the misfire counts hold, move verification to a fresh context the same
+way; otherwise revisit the fork.
 
 ## Open milestones
 
@@ -62,7 +70,7 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Have `transcript-audit` count slop-scan blocks and blocking review verdicts alongside framework misfires. Generate host adapters from tiers; run review and verification in a fresh fast-tier context; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; main-context tokens per gated change fall; fixture detection holds; misfire counts do not rise. |
+| Model and effort routing | Have `transcript-audit` count slop-scan blocks and blocking review verdicts alongside framework misfires. Claude Code review already forks on the fast tier. Measure its token effect; run verification in a fresh fast-tier context; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; main-context tokens per gated change fall; fixture detection holds; misfire counts do not rise. |
 | Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Token and detection measurements do not regress. |
 | Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
 | Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |

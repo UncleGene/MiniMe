@@ -1782,6 +1782,29 @@ class SkillsInstallCLITests(unittest.TestCase):
             self.assertIn("created", result.stdout)
             self.assertIn("Summary:", result.stdout)
 
+    def test_claude_root_runs_fresh_context_skills_in_a_forked_subagent(self):
+        """Decision 14: Claude Code forks fresh-context skills; other hosts get the source."""
+        cli = [sys.executable, str(REPO_ROOT / "scripts" / "minime")]
+        source = (REPO_ROOT / "skills" / "minime-code-reviewer" / "SKILL.md").read_text()
+        with tempfile.TemporaryDirectory() as d:
+            claude, codex = Path(d) / ".claude" / "skills", Path(d) / ".codex" / "skills"
+            for root in (claude, codex):
+                root.mkdir(parents=True)
+                install = subprocess.run([*cli, "skills", "install", "--skills-root", str(root), "--write"],
+                                         capture_output=True, text=True)
+                self.assertEqual(install.returncode, 0, install.stderr)
+                audit = subprocess.run([*cli, "host-registration-audit", "--skills-root", str(root), "--json"],
+                                       capture_output=True, text=True)
+                self.assertEqual(json.loads(audit.stdout)["result"], "pass", audit.stdout)
+            installed = (claude / "minime-code-reviewer" / "SKILL.md").read_text()
+            _, frontmatter, body = installed.split("---\n", 2)
+            for line in ("context: fork", "background: false", "model: sonnet"):
+                self.assertIn(f"\n{line}\n", f"\n{frontmatter}")
+            self.assertEqual(body, source.split("---\n", 2)[2])
+            self.assertEqual((codex / "minime-code-reviewer" / "SKILL.md").read_text(), source)
+            self.assertEqual((claude / "minime-doc-sync" / "SKILL.md").read_text(),
+                             (REPO_ROOT / "skills" / "minime-doc-sync" / "SKILL.md").read_text())
+
     def test_install_write_creates_regular_skill_files(self):
         with tempfile.TemporaryDirectory() as d:
             result = subprocess.run(

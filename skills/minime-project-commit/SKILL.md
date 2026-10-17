@@ -60,8 +60,10 @@ passing gates.
 - Read the minime-code-simplifier skill file and follow its procedure
   against the staged diff — simplify before review so the reviewer sees
   clean code. This step is mandatory in the full tier.
-- Read the minime-code-reviewer skill file and follow its procedure against
-  the staged diff. This step is mandatory in the full tier; fix all blocking
+- Invoke `minime-code-reviewer` through the host's skill mechanism, so a host
+  that runs it in a fresh context can; if the host has none, read its skill
+  file and follow its procedure. Pass the staged diff as its scope. This step is
+  mandatory in the full tier; fix all blocking
   issues before proceeding. Do NOT perform the review inline — only full delegation
   produces the required structured output (Verdict / Blocking issues /
   Suggestions / Missing tests).

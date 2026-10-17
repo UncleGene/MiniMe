@@ -243,7 +243,8 @@ Invoke by reading the skill file and following its procedure.
 
 **Cross-skill delegation:** When a procedure step or gate lists another skill
 by name (e.g. `minime-code-reviewer`), delegate to it — read that skill's file
-and follow its full procedure. Do not approximate the skill's behavior from
+and follow its full procedure, or invoke it through the host's skill mechanism
+where the calling step says so (fresh-context skills, Decision 14). Do not approximate the skill's behavior from
 memory or collapse its procedure into an inline summary. Each skill owns its
 own procedure; delegation means executing it, not remembering it. If the
 delegated gate, check, or workflow step requires no human input, execute it in

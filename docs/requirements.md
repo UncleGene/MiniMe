@@ -191,7 +191,8 @@ Links: Decisions 8/10; REQ-001/003/006.
 
 ## REQ-010 — Cost-appropriate execution
 
-Status: active; measurement implemented, routing and tiering pending.
+Status: active; measurement implemented; Claude Code review runs forked on the
+fast tier; other routing pending.
 Type: core. Priority: high.
 
 Skills run each step at the lowest model tier, effort level and context size
