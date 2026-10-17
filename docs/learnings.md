@@ -53,3 +53,7 @@ Action taken:
 - The agent commit gate also blocks setup commits in throwaway scratch repos.
   Worked around by staging instead of committing; follow-up trigger: a
   second occurrence.
+- The gate then blocked a commit sent in the same parallel batch as the
+  commit-skill read: replayed on the final transcript it passed, so the read
+  was not yet written when the hook ran. The gate now re-reads the
+  transcript for up to 2 seconds before blocking.

@@ -10,6 +10,7 @@ message to the agent.
 import json
 import re
 import sys
+import time
 
 SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
 COMMIT_SKILLS = {"minime-project-commit", "minime-self-commit"}
@@ -26,6 +27,8 @@ SKILL_FILE_RE = re.compile(rf"skills/({SKILL_NAME})/SKILL\.md")
 _SKILL_READ = rf"\s*(?:cat|sed|head|tail|less|nl|awk|bat)\b[^\n;&|]*?skills/({SKILL_NAME})/SKILL\.md"
 SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\()" + _SKILL_READ)
 CODEX_SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|cmd\W{1,4})" + _SKILL_READ)
+RECHECKS = 8
+RECHECK_SECONDS = 0.25
 MESSAGE = ("MiniMe commit gate: this turn has not loaded a commit skill. Read and follow "
            "minime-project-commit (minime-self-commit in the MiniMe repo), then commit.")
 
@@ -72,30 +75,43 @@ def _codex_skills(record: dict) -> tuple[set[str], bool]:
     return set(), False
 
 
+def _loaded_skills(path: str) -> tuple[set[str], set[str]]:
+    """Skills loaded in the whole session and in its current turn."""
+    session: set[str] = set()
+    turn: set[str] = set()
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
+            if new_turn:
+                turn = set()
+            session |= found
+            turn |= found
+    return session, turn
+
+
 def blocked(event: dict) -> bool:
     if event.get("tool_name") != "Bash":
         return False
     if not GIT_COMMIT_RE.search(str((event.get("tool_input") or {}).get("command", ""))):
         return False
-    session: set[str] = set()
-    turn: set[str] = set()
-    try:
-        with open(event["transcript_path"], encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
-                if new_turn:
-                    turn = set()
-                session |= found
-                turn |= found
-    except (KeyError, TypeError, OSError):
-        return False  # No readable transcript: nothing to judge against.
-    return bool(session) and not turn & COMMIT_SKILLS
+    # A commit sent in the same parallel batch as the skill read can reach the
+    # hook before the read is written, so re-read briefly before blocking.
+    for attempt in range(RECHECKS + 1):
+        try:
+            session, turn = _loaded_skills(event["transcript_path"])
+        except (KeyError, TypeError, OSError):
+            return False  # No readable transcript: nothing to judge against.
+        if not session or turn & COMMIT_SKILLS:
+            return False
+        if attempt < RECHECKS:
+            time.sleep(RECHECK_SECONDS)
+    return True
 
 
 def main() -> int:

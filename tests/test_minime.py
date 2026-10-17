@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -1338,6 +1339,28 @@ class AgentHookCLITests(unittest.TestCase):
             for name, records, code in cases:
                 with self.subTest(name):
                     self.assertEqual(self._gate(Path(d), records, "git commit -m x").returncode, code)
+
+    def test_gate_waits_for_a_commit_skill_read_still_being_written(self):
+        """Parallel tool calls can reach the hook before their reads are on disk."""
+        user = {"type": "user", "message": {"role": "user", "content": "go"}}
+        loaded = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime-agent-orchestrator"}}]}}
+        read = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/s/skills/minime-self-commit/SKILL.md"}}]}}
+        with tempfile.TemporaryDirectory() as d:
+            transcript = Path(d) / "t.jsonl"
+            transcript.write_text(json.dumps(user) + "\n" + json.dumps(loaded) + "\n")
+            event = {"tool_name": "Bash", "tool_input": {"command": "git commit -m x"},
+                     "transcript_path": str(transcript)}
+            gate = subprocess.Popen([sys.executable, str(self.GATE)], stdin=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, text=True)
+            assert gate.stdin is not None
+            gate.stdin.write(json.dumps(event))
+            gate.stdin.close()
+            time.sleep(0.5)
+            with transcript.open("a") as handle:
+                handle.write(json.dumps(read) + "\n")
+            self.assertEqual(gate.wait(timeout=10), 0)
 
     def test_gate_blocks_commits_without_a_commit_skill_in_the_turn(self):
         def user(text, meta=False):

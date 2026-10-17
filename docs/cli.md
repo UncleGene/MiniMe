@@ -214,6 +214,9 @@ Behavior:
   can still count as a load.
 - Sessions that never loaded a MiniMe skill, commands that only mention
   `git commit`, and unreadable transcripts pass.
+- Before blocking, the gate re-reads the transcript for up to 2 seconds,
+  because a skill read sent in the same parallel batch as the commit can reach
+  the transcript after the hook starts.
 
 ### `scripts/minime codex-hook install|uninstall`
 
