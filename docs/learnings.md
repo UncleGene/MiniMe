@@ -85,3 +85,18 @@ Action taken:
 - The agent commit gate blocked plain edit commands whose text mentioned a
   commit, a second over-match after the scratch-repo case. Follow-up trigger
   met: the gate now ignores heredoc bodies that do not feed a shell.
+
+## 2026-10-25 — Intake took request premises at face value
+
+Context: planning a cross-host second opinion and offload to Codex.
+
+Action taken:
+- Three design questions were asked for the second opinion before anyone
+  asked whether a reviewer without the session's goal and in-chat decisions
+  could work; the user raised it. The offload requirement assumed Claude Code
+  ran out of quota first, but local transcripts showed Codex at 96-100% of its
+  5-hour window on three of eight days. Both features were withdrawn
+  (Decision 15). Intake now has a premise check in
+  `minime-course-correction-triage` and `AGENTS.md`, and
+  `minime-decision-prompt` confirms the premise before the first design
+  question; a guard test pins both.

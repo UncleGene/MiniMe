@@ -1932,6 +1932,26 @@ class DocumentationConsistencyTests(unittest.TestCase):
                       "in the low risk tier, a reversible choice with a conventional default is stated, not asked"],
     }
 
+    PREMISE_GUARDS = {
+        "skills/minime-course-correction-triage/SKILL.md": [
+            "**premise check** — can the request work as stated",
+            "premise check (holds | fails — <evidence> | unverified — <what would check it>)"],
+        "skills/minime-decision-prompt/SKILL.md": [
+            "before the first design question on a request, confirm its premise holds"],
+        "AGENTS.md": ["**premise check** — can the request work as stated"],
+    }
+
+    def test_intake_checks_the_premise_before_design_questions(self):
+        """Regression: three design questions were asked for a cross-host
+        second opinion before anyone asked whether a reviewer without the
+        session's context could work, and an offload premise turned out false.
+        This pins wording: rephrasing a rule means updating its phrase here.
+        """
+        for path, phrases in self.PREMISE_GUARDS.items():
+            text = " ".join((REPO_ROOT / path).read_text(encoding="utf-8").lower().split())
+            with self.subTest(path=path):
+                self.assertEqual([p for p in phrases if p not in text], [])
+
     def test_ceremony_scales_with_risk_tier(self):
         """Decision 16: intake and questions scale with one risk scale, and the
         user sees a mechanism explained before options that depend on it.

@@ -25,6 +25,13 @@ current position.
   undefined and cost unmanaged.
 - Consequences: requirements, milestones and gate changes are judged against
   these goals in this order.
+- Amendment (2026-10-30): the primary use is single-author vibe coding — the
+  user directs and the agent writes nearly all of the code. The quality bar
+  exists for two reasons: slop compounds the cost and complexity of later
+  progress and maintenance, and a vibe-coded project may be shared or
+  open-sourced, so its author should not be ashamed of it — MiniMe itself
+  included. The ranking is unchanged: quality first, cost second,
+  portability third.
 
 ## Decision 2 — Individual cross-project use
 
@@ -37,6 +44,16 @@ current position.
   obligations without a current need.
 - Consequences: validation targets the verified hosts and representative
   tasks; installation correctness and reproducible checks remain required.
+- Amendment (2026-10-30): the individual is assumed to be on a budget,
+  typically the least expensive plan of each host (Claude, ChatGPT, and
+  potentially other CLIs or agents), so quality evidence must eventually
+  cover a cheapest-plan configuration, not only the maintainer's. Review
+  detection was measured there on 2026-10-30: Claude Code passes, and Codex
+  on `gpt-6-luna` is an accepted exception (plan, Review baseline). MiniMe's
+  own complexity is a standing risk to this audience: it must stay reliable
+  and maintainable without taxing target-project progress or expense. The
+  DRY/YAGNI invariants, `minime-design-simplifier` passes and the plan's
+  temporary-instrumentation table are the standing guards.
 
 ## Decision 3 — Host-level consumption, no trace in consuming repos
 
@@ -290,7 +307,8 @@ current position.
   security, data-format or public-interface text or behavior) states one intake
   line that says so and records the improvement classification, and a
   reversible choice with a conventional default is stated, not asked. Standard
-  states the three intake checks. High runs full triage and impact analysis.
+  states the four intake checks, including a premise check. High runs full
+  triage and impact analysis.
   When in doubt, the higher tier. `minime-decision-prompt` explains any new
   mechanism or cost before the options. Commit gate tiers (Decision 7) are
   unchanged.

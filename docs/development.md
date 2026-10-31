@@ -19,7 +19,8 @@ covers the same ground for people.
   `evals/doc-check/<layer>/` — planted stale-doc fixtures for `minime-doc-check`.
 - `tests/` — stdlib unittest suite.
 - `docs/` — CLI reference, reports, troubleshooting, requirements,
-  architecture, decisions, plan and learnings.
+  architecture, decisions, plan, learnings and dated reassessment reports.
+- `CLAUDE.md`, `GEMINI.md` — surface adapters that delegate to `AGENTS.md`.
 
 ## Environment
 

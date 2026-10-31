@@ -47,6 +47,10 @@ Rules), which is stated instead of asked.
 - When a choice is low risk by the definition in
   `minime-course-correction-triage`, reversible and has a conventional default,
   state the default and proceed instead of asking.
+- Before the first design question on a request, confirm its premise holds,
+  or record it as unverified, never as failed (the premise check in
+  `minime-course-correction-triage`); asking how to build something that may
+  not work is premature.
 - One question per turn. If multiple ambiguities exist, rank them by
   blocking priority — which one would halt implementation if left unresolved?
   Present the highest-priority question first. After the user answers, check

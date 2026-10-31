@@ -45,6 +45,20 @@ Hard tier on a cheaper model:
 | Claude Code / Sonnet 5.5 | 6/6 | 0/1 |
 | Codex / gpt-6-luna | 5/6 (missed `hard-buried-boundary`) | 1/1 (CSV formula injection, debatable) |
 
+Budget configuration (Decision 2 amendment of 2026-10-30), 2026-10-30. On
+Claude Code the reviewer forks to Sonnet 5.5 whatever the session model, so
+the forked result below covers a cheapest-plan session. On Codex the reviewer
+runs on the session model. `gpt-6-luna` on all fixtures missed
+`swallowed-error` and `hard-vacuous-test`; a standard-tier rerun, made for two
+unparsed replies, found `swallowed-error`, which does not change the full
+run's result. Across its three runs `luna` missed three different defects
+(with `hard-buried-boundary` above) and flagged the CSV formula-injection
+control on both hard runs. This fails the pass threshold. The user accepted it
+as an exception on 2026-10-30, for Codex on `gpt-6-luna` only: the scattered
+misses suggest model capacity rather than a reviewer gap a checklist would
+close. Rerun it when the reviewer, a profile or the Codex budget model
+changes; the exception ends when that run passes.
+
 With the installed adapter, Claude Code's reviewer forked on Sonnet 5.5 found
 20/20 defects across both tiers, with 0/3 control false positives and 1/1
 uncovered warning. One run of `hard-two-defects` found only one of its two
@@ -101,9 +115,9 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks, on probation until its cost is measured; next, measure it (REQ-010, Decision 14). Every routing change, including a cheaper model or effort level, needs a feasibility and benefit check first: what it saves, measured, against the detection it risks (Decision 15). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
+| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks, on probation until its cost is measured; next, measure it (REQ-010, Decision 14). Every routing change, including a cheaper model or effort level, needs a feasibility and benefit check first: what it saves, measured, against the detection it risks (Decision 15). Budget-configuration detection is measured (above): Claude Code passes; Codex on `gpt-6-luna` is an accepted exception. Cost per gated commit on a cheapest-plan session is not yet measured. | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise; cost per gated commit is reported for a cheapest-plan session on each verified host. |
 | Scale ceremony to risk | Implemented: intake and questions scale with one risk scale, `minime-decision-prompt` explains new mechanisms and costs before the options (Decision 16), and `minime-implementation-step-selector` delegates the gate chain to `minime-project-commit` instead of restating it (REQ-010). Next, measure. | Cost and detection measurements do not regress. |
-| More stack profiles (lower priority) | Profiles and fixtures for Ruby, Rails, TypeScript/JavaScript, React and Vitest (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
+| More stack profiles (lower priority) | Profiles and fixtures in order of recorded demand: sessions outside MiniMe and review-eval whose review reported the stack uncovered, counted on 2026-10-25. Ruby with Rails and ERB first (18 and 17 sessions), then Lua (16), then JavaScript (10). TypeScript (3), React and Vitest (0) wait until the warnings show demand; their marker rows in `stacks.md` stay so the warnings keep counting (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
 
 ## Temporary instrumentation
 

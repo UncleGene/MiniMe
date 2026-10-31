@@ -1,6 +1,6 @@
 ---
 name: minime-course-correction-triage
-description: Intake gate for feature requests and course corrections. Evaluate the request in full project context before any implementation — check it against accepted assumptions, trace its impact, and challenge its value — then classify and route it. Use when the user asks to add a feature, change behavior, or gives a correction, concern, or new direction.
+description: Intake gate for feature requests and course corrections. Evaluate the request in full project context before any implementation — check it against accepted assumptions, trace its impact, challenge its value, and verify its premise — then classify and route it. Use when the user asks to add a feature, change behavior, or gives a correction, concern, or new direction.
 metadata:
   minime_kind: target-reusable
   model_tier: reasoning
@@ -48,6 +48,11 @@ Commit gate tiers (light or full) are chosen separately and are unchanged.
    is the smallest delivery. Challenge the request when the value is unclear, or
    when a doc/decision change or no-op would serve. "The user asked for it" is
    not a value justification on its own.
+4. **Premise check** — can the request work as stated, and what does it
+   assume? Name the load-bearing assumption (data that must be observable,
+   context another agent would lack, a cause the user has inferred) and verify
+   it from evidence when a search, a file read or a log lookup can. If it fails
+   or cannot be checked, say so with the evidence before any design question.
 
 ## Classify the correction as
 
@@ -103,7 +108,8 @@ Commit gate tiers (light or full) are chosen separately and are unchanged.
 
 - Intake verdict: assumption check (clear | conflicts with <artifact>), impact
   check (touched files only | wider — names areas), value check (justified | weak
-  — recommend doc/decision/no-op instead)
+  — recommend doc/decision/no-op instead), premise check (holds | fails —
+  <evidence> | unverified — <what would check it>)
 - Classification (one or more categories from above)
 - Improvement opportunity: local-project improvement | reusable-skill improvement | both | no action, with rationale
 - Primary targets (docs or files)

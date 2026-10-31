@@ -4,6 +4,10 @@ MiniMe is a library of engineering skills for AI coding agents. You install it
 once at user level, and every project you open in Codex, Claude Code, OpenCode
 or GitHub Copilot can use it. Your projects stay free of MiniMe files.
 
+It is built for single-author, agent-driven development on a budget: the
+quality bar keeps slop from compounding your cost and complexity, and keeps a
+project you may later share or open-source fit to show.
+
 ## Goals
 
 1. **Production quality without babysitting.** Agents meet an explicit
@@ -120,7 +124,7 @@ skill, as in the table below.
 | Entering an existing project cold | `minime-project-orient` | Reads guide, plan, latest checkpoint and git state; returns a verified briefing and next-action options. |
 | Inherited or drifted project | `minime-project-reassessment` | Judges goals, docs, design, code and tests; produces a prioritized repair plan. |
 | "What should I work on next?" | `minime-implementation-step-selector` | Picks the next concrete slice from the docs and repo state. |
-| New feature or a change of direction | `minime-course-correction-triage` | Checks the request against accepted decisions, traces impact and challenges value before any code, scaled to risk: one line for a low-risk change. |
+| New feature or a change of direction | `minime-course-correction-triage` | Checks the request against accepted decisions, traces impact, challenges value and tests whether it can work as stated before any code, scaled to risk: one line for a low-risk change. |
 | Priorities shifted mid-project | `minime-replan` | Updates only the affected plan artifacts and selects the next slice. |
 | Bug or failing test | `minime-systematic-debugging` | Root cause first, fix second. |
 | Change is ready | `minime-project-commit` | Runs doc sync, scope check, simplification, review and verification, then shapes the commit. |
@@ -184,6 +188,11 @@ Its findings are heuristics; verify one before acting on it.
   rules checkable, but no host guarantees an agent follows every step.
 - Registration checks prove the files are in place, not that a fresh host
   session discovered and used them.
+- Review strength follows the model that runs it. With MiniMe installed,
+  Claude Code runs the reviewer on Sonnet whatever your session model. Codex
+  runs it on your session model: on the cheaper `gpt-6-luna`, review missed
+  one or two planted defects in twenty per run, where the default model
+  missed none, so a commit gate on that model can pass a defect.
 - `transparent-audit` detects MiniMe references, skill names and symlinks; it
   does not detect renamed copies of skill text.
 - `skills install --write`, `git-hook install|uninstall --write` and

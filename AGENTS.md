@@ -9,6 +9,10 @@ goals (Decision 1) are:
 3. Portability: Codex and Claude Code are verified hosts; OpenCode and
    GitHub Copilot are supported (Decision 4).
 
+The user is a single author on a budget plan directing agents to write nearly
+all of the code; quality keeps slop from compounding cost and keeps projects
+fit to share (Decisions 1/2, amended 2026-10-30).
+
 Skills install at host/user level, and Python 3.14+ is required. Planted-defect
 fixtures, not formal comparison trials, evidence the bar (Decision 9).
 Automated scanning and CLI writes to consuming repos are out of scope, and no
@@ -144,7 +148,7 @@ them.**
 **Before implementing any feature addition or behavior change, run a recorded
 intake evaluation — do not take the request at face value.** Scale it to the
 change's risk tier, defined in `minime-course-correction-triage` (Decision 16):
-a low-risk change states one intake line; a standard one passes the three
+a low-risk change states one intake line; a standard one passes the four
 checks below, stated in the response; a high-risk one runs the full triage.
 
 - **Assumption check** — does the request contradict an accepted requirement,
@@ -156,6 +160,12 @@ checks below, stated in the response; a high-risk one runs the full triage.
 - **Value check** — state what value the change adds and confirm implementation
   is the smallest delivery. If the value is unclear, or a doc/decision change or
   no-op would serve, challenge the request before writing code.
+- **Premise check** — can the request work as stated, and what does it
+  assume? Name the load-bearing assumption (data that must be observable,
+  context another agent would lack, a cause the user has inferred) and verify
+  it from evidence when a search, a file read or a log lookup can. If it fails
+  or cannot be checked, say so with the evidence before any design question or
+  code.
 
 This rule overrides any "the target is clear, route directly" shortcut. A
 request that looks like a one-line fix still passes intake at its tier. The
