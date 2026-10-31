@@ -263,6 +263,7 @@ requires a user decision, external approval, or unavailable environment.
 | Pick the next implementation slice | `minime-implementation-step-selector` |
 | Verify a specific factual claim (path, count, flag, behavior) | `minime-claim-verifier` |
 | Sync docs with changes, check one doc, or sweep all docs (report-only/apply) | `minime-doc-sync` |
+| Report docs a diff made stale, editing nothing (called by `minime-doc-sync`) | `minime-doc-check` |
 | Detect over-engineering in plan/architecture | `minime-design-simplifier` |
 | Check a diff stays in scope | `minime-scope-boundary` |
 | Check phase readiness | `minime-phase-quality-guard` |
@@ -288,10 +289,10 @@ Numeric facts that drift. Verify these against source before citing them.
 
 | Claim | Source | Current value |
 |---|---|---|
-| Target-reusable skill count | `scripts/minime skills list --json` | 28 |
+| Target-reusable skill count | `scripts/minime skills list --json` | 29 |
 | Internal skill count | `scripts/minime skills list --json` | 2 |
 | Test count | `python -m unittest discover -s tests` | Verify from the current run |
-| Registered host skills (per surface) | `scripts/minime host-registration-audit --skills-root <surface> --json` | 28 |
+| Registered host skills (per surface) | `scripts/minime host-registration-audit --skills-root <surface> --json` | 29 |
 | Installed surfaces | `scripts/minime skills install --json` | 4 (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`, `~/.copilot/skills`) |
 
 ## Key Invariants

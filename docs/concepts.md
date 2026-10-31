@@ -111,12 +111,13 @@ whether a skill's judgment was right. Unknown record shapes are skipped, so a
 host format change shows up as falling counts rather than errors.
 Links: REQ-009/010; Decision 10.
 
-`review-eval` runs the installed reviewer headlessly on planted-defect fixtures
-in temporary git repos. It scores detection, false positives on controls, and
-uncovered-stack warnings. Scoring is by file and line proximity, so a finding
-reported at the wrong place counts as missed. The results measure the reviewer
-on these fixtures, not on every project.
-Links: REQ-003; Decisions 9/11.
+`review-eval` runs the installed reviewer, or `minime-doc-check`, headlessly on
+planted-defect fixtures in temporary git repos. It scores detection, false
+positives on controls, and uncovered-stack warnings; doc-check's planted
+defects are stale document lines. Scoring is by file and line proximity, so a
+finding reported at the wrong place counts as missed. The results measure the
+skill on these fixtures, not on every project.
+Links: REQ-003/010; Decisions 9/11/14.
 
 Two user-level hooks enforce the mechanical part of the bar without touching
 consuming repos. `scripts/slop-scan` runs as a global pre-commit hook through

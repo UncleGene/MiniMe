@@ -17,7 +17,7 @@ or GitHub Copilot can use it. Your projects stay free of MiniMe files.
 
 ## What you get
 
-- **28 skills** covering the development loop: project inception and
+- **29 skills** covering the development loop: project inception and
   orientation, requirements and specs, planning and replanning, implementation
   step selection, debugging, review, simplification, documentation sync and
   commit shaping. Each skill carries the same interaction rules: argued choices
@@ -155,6 +155,7 @@ still be invoked on its own.
 |---|---|
 | `minime-decision-prompt` | Every skill that needs your choice: named options with pros, cons and impact. Only called by other skills. |
 | `minime-scope-boundary`, `minime-code-simplifier`, `minime-verification-gate` | Commit gates. |
+| `minime-doc-check` | `minime-doc-sync`'s diff scope: reports stale docs without editing; forked on a cheaper model in Claude Code. |
 | `minime-claim-verifier`, `minime-phase-quality-guard` | Plan review and phase transitions. |
 | `minime-impact-analyzer` | Triage and replanning, to trace a change across docs and code. |
 | `minime-project-adr`, `minime-project-milestone`, `minime-system-updater`, `minime-validation-planner` | Writing decisions, milestones, architecture and test plans during inception and replanning. |

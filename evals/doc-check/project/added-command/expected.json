@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "stale-count",
+  "locations": [
+    {
+      "file": "README.md",
+      "contains": "notes has three commands"
+    }
+  ]
+}

@@ -23,6 +23,16 @@ relevant project-guide/plan skill for local workflow changes.
 Entries must follow Decision 8: no names or paths of other projects, no
 personal data, no transcript excerpts.
 
+## 2026-10-20 — Commit gate blocked a skill read made in the commit's command
+
+Context: plan, hook and routing commits in the MiniMe repo.
+
+Action taken:
+- The commit gate blocked a commit whose Bash command also read the commit
+  skill, because the hook checks the transcript before the command runs, and
+  its message did not say so → the message now says the read must be its own
+  earlier tool call, so the retry succeeds first time.
+
 ## 2026-10-16 — Orchestrator routing depended on a forbidden project section
 
 Context: README review promoted `minime-agent-orchestrator` as the root skill.

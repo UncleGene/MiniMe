@@ -139,6 +139,7 @@ Scores headless reviews of planted-defect fixtures (Decisions 9/11).
 
 ```sh
 scripts/minime review-eval --host claude
+scripts/minime review-eval --host claude --skill doc-check --run --model sonnet
 scripts/minime review-eval --host codex --run --json
 scripts/minime review-eval --host claude --run --model <model> --effort <level> --layer python
 scripts/minime review-eval --host codex --run --tier hard --model <model>
@@ -146,7 +147,10 @@ scripts/minime review-eval --host codex --run --tier hard --model <model>
 
 Behavior:
 
-- Fixtures live in `evals/review/<layer>/`. Each layer has a `base/` project,
+- `--skill` picks the skill scored: `code-reviewer` (default) on
+  `evals/review/`, or `doc-check` on `evals/doc-check/`, whose defects are
+  stale lines, often in documents the change left untouched (Decision 14).
+- Fixtures live in `evals/<skill root>/<layer>/`. Each layer has a `base/` project,
   and each fixture has a `change/` overlay plus an `expected.json` answer key.
   Defect keys locate the planted defect by a text snippet, or list several
   planted defects under `defects`. Controls carry no defect. An `uncovered` key
@@ -170,7 +174,7 @@ Behavior:
   any blocking finding is a `false-positive`; its `blocking` list gives each
   finding's file, line and summary so the cause can be checked. Unreadable replies are
   `unparsed`.
-- The reviewer is the installed host skill, so run `skills install --write`
+- The scored skill is the installed host skill, so run `skills install --write`
   first.
 
 ### `scripts/minime git-hook install|uninstall`

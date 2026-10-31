@@ -1,0 +1,23 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "stale-behavior",
+  "defects": [
+    {
+      "locations": [
+        {
+          "file": "README.md",
+          "contains": "ignoring case"
+        }
+      ]
+    },
+    {
+      "locations": [
+        {
+          "file": "docs/usage.md",
+          "contains": "Matching ignores case"
+        }
+      ]
+    }
+  ]
+}

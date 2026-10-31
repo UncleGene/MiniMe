@@ -15,7 +15,8 @@ covers the same ground for people.
   hook installers.
 - `scripts/slop-scan`, `scripts/commit-gate` — hook bodies copied to
   `~/.config/minime/` on install.
-- `evals/review/<layer>/` — planted-defect review fixtures.
+- `evals/review/<layer>/` — planted-defect review fixtures;
+  `evals/doc-check/<layer>/` — planted stale-doc fixtures for `minime-doc-check`.
 - `tests/` — stdlib unittest suite.
 - `docs/` — CLI reference, reports, troubleshooting, requirements,
   architecture, decisions, plan and learnings.
@@ -68,6 +69,7 @@ Mypy uses its default checks. Host audits need the installed surfaces.
 
 4. If the reviewer or a slop profile changed, run the fixtures (this spends
    host plan quota): `scripts/minime review-eval --host <claude|codex> --run`.
+   If `minime-doc-check` changed, add `--skill doc-check`.
 5. Record the action and rationale in `docs/learnings.md`.
 
 `minime-generalize-skill` walks an agent through these steps.

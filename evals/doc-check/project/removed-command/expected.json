@@ -1,0 +1,26 @@
+{
+  "kind": "defect",
+  "type": "removed-feature",
+  "defects": [
+    {
+      "locations": [
+        {
+          "file": "README.md",
+          "contains": "notes export --out <file>"
+        }
+      ]
+    },
+    {
+      "locations": [
+        {
+          "file": "docs/usage.md",
+          "contains": "## Exporting"
+        },
+        {
+          "file": "docs/usage.md",
+          "contains": "notes export --out notes.md"
+        }
+      ]
+    }
+  ]
+}

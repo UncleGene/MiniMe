@@ -195,7 +195,7 @@ Links: Decisions 8/10; REQ-001/003/006.
 
 Status: active; token measurement, including per-model usage of each gated
 commit turn and its subagents, and list-price cost implemented; Claude Code
-review runs forked on the fast tier; other routing pending.
+review and doc check run forked on the fast tier; other routing pending.
 Type: core. Priority: high.
 
 Skills run each step at the lowest-cost model, effort level and context that

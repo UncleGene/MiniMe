@@ -40,7 +40,9 @@ CODEX_SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|cmd\W{1,4})" + _SKILL
 RECHECKS = 8
 RECHECK_SECONDS = 0.25
 MESSAGE = ("MiniMe commit gate: this turn has not loaded a commit skill. Read and follow "
-           "minime-project-commit (minime-self-commit in the MiniMe repo), then commit.")
+           "minime-project-commit (minime-self-commit in the MiniMe repo), then commit. "
+           "The read must be its own earlier tool call; one in the commit's command "
+           "comes too late.")
 NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
 STOP_MESSAGE = ("MiniMe next-action gate: this turn loaded a MiniMe skill, so end it with "
                 "`Recommended next action: <one concrete step>`. Add that line now.")

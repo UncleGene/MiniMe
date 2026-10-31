@@ -3,7 +3,7 @@ name: minime-course-correction-triage
 description: Intake gate for feature requests and course corrections. Evaluate the request in full project context before any implementation — check it against accepted assumptions, trace its impact, and challenge its value — then classify and route it. Use when the user asks to add a feature, change behavior, or gives a correction, concern, or new direction.
 metadata:
   minime_kind: target-reusable
-  model_tier: fast
+  model_tier: reasoning
   model_tier_strictness: preferred
 ---
 

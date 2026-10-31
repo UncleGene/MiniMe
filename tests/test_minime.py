@@ -1311,6 +1311,35 @@ print("Review done.\\n```json\\n" + json.dumps({"verdict": "fix", "findings": fi
             self.assertEqual(report["summary"], {"python": {
                 "defects": 2, "detected": 1, "controls": 0, "false_positives": 0}})
 
+    def test_doc_check_eval_prompts_doc_check_and_finds_stale_lines_in_unchanged_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "fixtures"
+            base = root / "project" / "base"
+            base.mkdir(parents=True)
+            (base / "app.py").write_text("FLAG = '--out'\n")
+            (base / "README.md").write_text("# app\n\nRun `app --out x`.\n")
+            for name, expected in (
+                ("stale", {"kind": "defect", "locations": [{"file": "README.md", "contains": "--out"}]}),
+                ("control", {"kind": "control"}),
+            ):
+                (root / "project" / name / "change").mkdir(parents=True)
+                (root / "project" / name / "change" / "app.py").write_text("FLAG = '--output'\n")
+                (root / "project" / name / "expected.json").write_text(json.dumps(expected))
+            # Fake host: blocks on README.md line 3 only when asked for doc-check.
+            fake = Path(d) / "fake-host"
+            fake.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                            "findings = [{'file': 'README.md', 'line': 3, 'severity': 'blocking'}]\n"
+                            "if 'minime-doc-check' not in ' '.join(sys.argv): findings = []\n"
+                            "print('```json\\n' + json.dumps({'verdict': 'fix', 'findings': findings}) + '\\n```')\n")
+            fake.chmod(0o755)
+            result = self._cli("--host", "claude", "--skill", "doc-check", "--fixtures", str(root),
+                               "--host-bin", str(fake), "--run", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["skill"], "doc-check")
+            self.assertEqual({f["id"]: f["outcome"] for f in report["fixtures"]},
+                             {"project/stale": "detected", "project/control": "false-positive"})
+
     def test_dry_run_lists_fixtures_without_invoking_the_host(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "fixtures"
@@ -1320,6 +1349,29 @@ print("Review done.\\n```json\\n" + json.dumps({"verdict": "fix", "findings": fi
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("python/planted", result.stdout)
             self.assertIn("dry run", result.stdout)
+
+    def test_shipped_doc_check_fixtures_are_well_formed(self):
+        """Each stale snippet is base text the change left in place, and every change passes its tests."""
+        project = REPO_ROOT / "evals" / "doc-check" / "project"
+        fixtures = [p for p in project.iterdir() if p.is_dir() and p.name != "base"]
+        self.assertTrue(fixtures)
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture.name), tempfile.TemporaryDirectory() as d:
+                expected = json.loads((fixture / "expected.json").read_text())
+                self.assertIn(expected["kind"], ("defect", "control"))
+                self.assertIn(expected.get("tier", "standard"), ("standard", "hard"))
+                shutil.copytree(project / "base", d, dirs_exist_ok=True)
+                shutil.copytree(fixture / "change", d, dirs_exist_ok=True)
+                defects = expected.get("defects") or (
+                    [{"locations": expected["locations"]}] if expected["kind"] == "defect" else [])
+                for defect in defects:
+                    for location in defect["locations"]:
+                        self.assertIn(location["contains"], (project / "base" / location["file"]).read_text())
+                        self.assertIn(location["contains"], (Path(d) / location["file"]).read_text())
+                run = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=d,
+                                     capture_output=True, text=True,
+                                     env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_shipped_fixtures_are_well_formed(self):
         """Every answer key points at a changed line, and Python bases pass their tests."""
@@ -1813,6 +1865,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
                                      "minime-project-milestone", "minime-phase-quality-guard"],
         "minime-replan": ["minime-decision-prompt", "minime-project-milestone",
                           "minime-doc-sync"],
+        "minime-doc-sync": ["minime-doc-check"],
         "minime-course-correction-triage": ["minime-impact-analyzer"],
         "minime-project-reassessment": ["minime-doc-sync", "minime-design-simplifier",
                                         "minime-decision-prompt"],
@@ -1991,7 +2044,6 @@ class SkillsInstallCLITests(unittest.TestCase):
     def test_claude_root_runs_fresh_context_skills_in_a_forked_subagent(self):
         """Decision 14: Claude Code forks fresh-context skills; other hosts get the source."""
         cli = [sys.executable, str(REPO_ROOT / "scripts" / "minime")]
-        source = (REPO_ROOT / "skills" / "minime-code-reviewer" / "SKILL.md").read_text()
         with tempfile.TemporaryDirectory() as d:
             claude, codex = Path(d) / ".claude" / "skills", Path(d) / ".codex" / "skills"
             for root in (claude, codex):
@@ -2002,12 +2054,14 @@ class SkillsInstallCLITests(unittest.TestCase):
                 audit = subprocess.run([*cli, "host-registration-audit", "--skills-root", str(root), "--json"],
                                        capture_output=True, text=True)
                 self.assertEqual(json.loads(audit.stdout)["result"], "pass", audit.stdout)
-            installed = (claude / "minime-code-reviewer" / "SKILL.md").read_text()
-            _, frontmatter, body = installed.split("---\n", 2)
-            for line in ("context: fork", "background: false", "model: sonnet"):
-                self.assertIn(f"\n{line}\n", f"\n{frontmatter}")
-            self.assertEqual(body, source.split("---\n", 2)[2])
-            self.assertEqual((codex / "minime-code-reviewer" / "SKILL.md").read_text(), source)
+            for skill in ("minime-code-reviewer", "minime-doc-check"):
+                source = (REPO_ROOT / "skills" / skill / "SKILL.md").read_text()
+                installed = (claude / skill / "SKILL.md").read_text()
+                _, frontmatter, body = installed.split("---\n", 2)
+                for line in ("context: fork", "background: false", "model: sonnet"):
+                    self.assertIn(f"\n{line}\n", f"\n{frontmatter}")
+                self.assertEqual(body, source.split("---\n", 2)[2])
+                self.assertEqual((codex / skill / "SKILL.md").read_text(), source)
             self.assertEqual((claude / "minime-doc-sync" / "SKILL.md").read_text(),
                              (REPO_ROOT / "skills" / "minime-doc-sync" / "SKILL.md").read_text())
 

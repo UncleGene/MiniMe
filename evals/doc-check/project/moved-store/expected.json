@@ -1,0 +1,10 @@
+{
+  "kind": "defect",
+  "type": "stale-path",
+  "locations": [
+    {
+      "file": "README.md",
+      "contains": "~/.notes.json"
+    }
+  ]
+}

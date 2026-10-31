@@ -1,0 +1,11 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "partial-update",
+  "locations": [
+    {
+      "file": "docs/usage.md",
+      "contains": "longer than 280 characters"
+    }
+  ]
+}

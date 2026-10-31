@@ -1,0 +1,15 @@
+{
+  "kind": "defect",
+  "tier": "hard",
+  "type": "stale-contract",
+  "locations": [
+    {
+      "file": "AGENTS.md",
+      "contains": "{id, text, tag}"
+    },
+    {
+      "file": "AGENTS.md",
+      "contains": "never rename or remove a field"
+    }
+  ]
+}

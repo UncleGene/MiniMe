@@ -3,7 +3,7 @@ name: minime-project-milestone
 description: Break work into shippable milestones tied to requirements and acceptance criteria. Use when sequencing work into deliverable slices or maintaining a project plan.
 metadata:
   minime_kind: target-reusable
-  model_tier: fast
+  model_tier: reasoning
   model_tier_strictness: preferred
 ---
 

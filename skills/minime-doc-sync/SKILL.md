@@ -28,24 +28,14 @@ per invocation:
 
 ## Procedure — `diff`
 
-1. **Gather what changed.** List changed files; categorize as new capability,
-   changed behavior, removed functionality, or internal. Enumerate doc files.
-2. **Audit each doc against the changes.** Find load-bearing claims the diff may
-   invalidate: paths, commands, flags, counts, feature descriptions, setup
-   steps, expected output. README: capabilities, setup, examples. Architecture
-   docs: only what the diff clearly contradicts. Project guide: commands,
-   scripts, paths, test instructions.
-3. **Classify each update.** Auto-fix factual corrections the diff clearly
-   warrants (a path, a count, a new table row). Surface narrative changes,
-   section removals, security-model changes, rewrites over ~10 lines, ambiguous
-   relevance and new sections. Never auto-fix positioning, design rationale or
-   security descriptions.
-4. **Apply auto-fixes**, one specific summary line per file.
-5. **Surface risky updates one at a time**; apply approved ones immediately.
-6. **Check cross-references** touched by the diff: links, section names, tables
-   of contents, counts.
-7. **TODO cleanup** if a TODO file exists: flag items the diff completed or made
-   stale; never silently mark them complete.
+1. **Check.** Invoke `minime-doc-check` through the host's skill mechanism, so
+   a host that runs it in a fresh context can; if the host has none, read its
+   skill file and follow its procedure. Pass the diff or commit range. It
+   returns stale claims with locations, proposed fixes and a classification.
+2. **Apply `auto-fix` findings** after confirming each against the diff, one
+   specific summary line per file. In `report-only` mode, edit nothing.
+3. **Surface `surface` findings one at a time**; apply approved ones
+   immediately.
 
 ## Procedure — `document`
 

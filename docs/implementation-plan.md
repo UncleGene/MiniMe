@@ -8,13 +8,15 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
 
 ## Current state
 
-- 28 reusable skills and 2 internal skills, installed at user level on all
+- 29 reusable skills and 2 internal skills, installed at user level on all
   four host roots by `scripts/minime skills install --write`.
 - Review applies generic slop checks plus layer profiles for Python and agent
   skills/instructions; `review-eval` scores the installed reviewer on
-  planted-defect fixtures, with a standard and a hard tier.
-- In Claude Code, `minime-code-reviewer` runs in a forked subagent on Sonnet
-  5.5 (Decision 14); other hosts run it inline on the session model.
+  planted-defect fixtures, with a standard and a hard tier, and
+  `--skill doc-check` scores `minime-doc-check` on planted stale-doc fixtures.
+- In Claude Code, `minime-code-reviewer` and `minime-doc-check` (the diff audit
+  that `minime-doc-sync` calls) run in forked subagents on Sonnet 5.5
+  (Decision 14); other hosts run them inline on the session model.
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
 - `transcript-audit` reports skill loads, tokens and their list-price cost
@@ -46,6 +48,12 @@ uncovered warning. One run of `hard-two-defects` found only one of its two
 defects; the rerun found both. Runs that hit a host limit exit non-zero and
 count as `unparsed`; rerun those fixtures.
 
+The report-only diff audit of `minime-doc-sync`, now `minime-doc-check`
+(`--skill doc-check`, both tiers, 2026-10-25), found 8/8 planted stale lines
+with 0/2 control false positives on the session model (Opus 5.5) and on Sonnet
+5.5 alike, so these fixtures meet the fork bar but do not yet tell the tiers
+apart.
+
 The pass threshold is 100% detection, no false positives and every warning
 shown. A defect the review finds anywhere blocks, so control projects must be
 genuinely clean; repeat runs of one control can still differ between clean
@@ -60,13 +68,16 @@ host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Reinstall the Claude Code hooks (`scripts/minime claude-hook install --write`)
-and check that `no-next-action` misfires fall in later transcript audits. They
-rose from 3 in the 31 MiniMe turns before the reviewer fork to 20 in the 37
-after it: 12 were progress updates while background work ran and 8 were
-late-session turns that ended on a summary. Both break the contract, and the
-fork does not touch the main turn's final text. The commit gate is now also a
-`Stop` hook that blocks a MiniMe turn ending without the line (Decision 13).
+Measure the forked `minime-doc-check` as the reviewer fork was measured: after
+enough gated commit turns, compare priced cost per gated commit turn, main
+context plus subagents, and the misfire counts with the turns before the fork
+(Decision 14 amendment of 2026-10-25). Keep the fork if cost falls and misfires
+do not rise; otherwise fold the audit back into `minime-doc-sync`.
+
+`no-next-action` misfires on Claude Code rose from 3 in the 31 MiniMe turns
+before the reviewer fork to 20 in the 37 after it. With the `Stop` hook
+installed (Decision 13), audits from 2026-10-21 to 2026-10-25 show 1 in 27.
+Codex has no such hook and showed 18 in 67 turns in the same period.
 
 The forked reviewer was measured on 2026-10-20 (Claude Code, list price, main
 context plus subagents, MiniMe counted as a target project). Before the fork,
@@ -87,7 +98,7 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above); re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
+| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks; next, measure its cost (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
 | Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Cost and detection measurements do not regress. |
 | Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
 | Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). Merge findings by issue, rank ones both hosts raise highest, and dismiss ones with no traceable caller path or that only prefer another approach. | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |

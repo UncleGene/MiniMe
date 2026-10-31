@@ -1798,13 +1798,15 @@ def command_transcript_audit(args: argparse.Namespace) -> int:
     return 0
 
 
-# Review eval (Decisions 9/11): run the reviewer headlessly on planted-defect
+# Review eval (Decisions 9/11): run a reviewing skill headlessly on planted-defect
 # fixtures in temporary git repos and score what it reports. Fixture files are
 # never modified; a real run spends host plan quota, so it requires --run.
-REVIEW_EVAL_ROOT = "evals/review"
+# Each eval skill maps to its fixture root; both run forked on the fast tier in
+# Claude Code (Decision 14).
+EVAL_SKILLS = {"code-reviewer": "evals/review", "doc-check": "evals/doc-check"}
 REVIEW_PROMPT = (
     "Review the uncommitted changes in this repository (run `git diff`) with the "
-    "minime-code-reviewer skill{mention}. Do not modify any files. End your reply with one "
+    "minime-{skill} skill{mention}. Do not modify any files. End your reply with one "
     "fenced json block of this shape: {{\"verdict\": \"pass|fix|route\", \"findings\": "
     "[{{\"file\": \"<repo-relative path>\", \"line\": <number>, \"severity\": "
     "\"blocking|suggestion\", \"summary\": \"<one sentence>\"}}], \"uncovered_stacks\": "
@@ -1814,13 +1816,14 @@ JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 LINE_TOLERANCE = 3
 
 
-def _review_command(host: str, binary: str, model: str, effort: str, reply_file: Path) -> list[str]:
+def _review_command(host: str, binary: str, skill: str, model: str, effort: str,
+                    reply_file: Path) -> list[str]:
     if host == "claude":
-        prompt = REVIEW_PROMPT.format(mention="")
+        prompt = REVIEW_PROMPT.format(skill=skill, mention="")
         return [binary, "-p", prompt,
                 *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
                 "--allowedTools", "Read", "Grep", "Glob", "Skill", "Bash(git diff:*)", "Bash(git status:*)"]
-    prompt = REVIEW_PROMPT.format(mention=" ($minime-code-reviewer)")
+    prompt = REVIEW_PROMPT.format(skill=skill, mention=f" ($minime-{skill})")
     return [binary, "exec", "-s", "read-only", "--skip-git-repo-check", "--ephemeral",
             "-o", str(reply_file),
             *(["-m", model] if model else []),
@@ -1852,18 +1855,21 @@ def _review_defects(expected: dict) -> list[dict]:
     return expected.get("defects") or [{"locations": expected["locations"]}]
 
 
-def _expected_lines(change: Path, defect: dict) -> dict[str, list[int]]:
+def _expected_lines(fixture: dict, defect: dict) -> dict[str, list[int]]:
+    """Lines of each location's snippet in the changed tree; a stale-doc defect
+    sits in a file the change left as the base had it."""
     lines: dict[str, list[int]] = {}
     for location in defect["locations"]:
-        text = (change / location["file"]).read_text(encoding="utf-8")
+        path = fixture["change"] / location["file"]
+        text = (path if path.exists() else fixture["base"] / location["file"]).read_text(encoding="utf-8")
         lines.setdefault(location["file"], []).extend(
             number for number, line in enumerate(text.splitlines(), start=1)
             if location["contains"] in line)
     return lines
 
 
-def _defect_found(change: Path, defect: dict, findings: list[dict]) -> bool:
-    for file, numbers in _expected_lines(change, defect).items():
+def _defect_found(fixture: dict, defect: dict, findings: list[dict]) -> bool:
+    for file, numbers in _expected_lines(fixture, defect).items():
         for finding in findings:
             path = str(finding.get("file", "")).removeprefix("./")
             line = finding.get("line")
@@ -1891,12 +1897,12 @@ def _score_review(fixture: dict, reply: dict | None) -> tuple[str, int]:
     if expected["kind"] == "control":
         return ("false-positive" if _blocking_findings(reply) else "clean"), 0
     defects = _review_defects(expected)
-    found = sum(_defect_found(fixture["change"], defect, findings) for defect in defects)
+    found = sum(_defect_found(fixture, defect, findings) for defect in defects)
     return ("detected" if found == len(defects) else "partial" if found else "missed"), found
 
 
-def _run_review_fixture(fixture: dict, host: str, binary: str, model: str, effort: str,
-                        timeout: int) -> dict:
+def _run_review_fixture(fixture: dict, host: str, binary: str, skill: str, model: str,
+                        effort: str, timeout: int) -> dict:
     with tempfile.TemporaryDirectory() as directory:
         repo = Path(directory) / "repo"
         shutil.copytree(fixture["base"], repo)
@@ -1908,7 +1914,7 @@ def _run_review_fixture(fixture: dict, host: str, binary: str, model: str, effor
         shutil.copytree(fixture["change"], repo, dirs_exist_ok=True, copy_function=shutil.copyfile)
         reply_file = Path(directory) / "reply.txt"
         try:
-            run = subprocess.run(_review_command(host, binary, model, effort, reply_file),
+            run = subprocess.run(_review_command(host, binary, skill, model, effort, reply_file),
                                  cwd=repo, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as error:
             return {"id": fixture["id"], "outcome": "error", "detail": type(error).__name__}
@@ -1931,11 +1937,11 @@ def _run_review_fixture(fixture: dict, host: str, binary: str, model: str, effor
 
 
 def command_review_eval(args: argparse.Namespace) -> int:
-    root = Path(args.fixtures).expanduser() if args.fixtures else repo_root() / REVIEW_EVAL_ROOT
+    root = Path(args.fixtures).expanduser() if args.fixtures else repo_root() / EVAL_SKILLS[args.skill]
     fixtures = _review_fixtures(root, args.layer or [], args.tier or "")
     binary = args.host_bin or shutil.which(args.host) or args.host
     if not args.run:
-        print(f"MiniMe review eval: dry run for {args.host} ({len(fixtures)} fixtures)")
+        print(f"MiniMe review eval: dry run of {args.skill} for {args.host} ({len(fixtures)} fixtures)")
         for fixture in fixtures:
             print(f"  {fixture['id']}: {fixture['expected']['kind']} "
                   f"({fixture['expected'].get('tier', 'standard')})")
@@ -1944,8 +1950,8 @@ def command_review_eval(args: argparse.Namespace) -> int:
         return 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         results = sorted(pool.map(lambda f: _run_review_fixture(
-            f, args.host, binary, args.model or "", args.effort or "", args.timeout), fixtures),
-            key=lambda r: r["id"])
+            f, args.host, binary, args.skill, args.model or "", args.effort or "", args.timeout),
+            fixtures), key=lambda r: r["id"])
     summary: dict[str, dict[str, int]] = {}
     for fixture, result in zip(sorted(fixtures, key=lambda f: f["id"]), results):
         layer = summary.setdefault(fixture["layer"], {})
@@ -1962,13 +1968,13 @@ def command_review_eval(args: argparse.Namespace) -> int:
         if "defects" in layer:
             layer.setdefault("controls", 0)
             layer.setdefault("false_positives", 0)
-    report = {"schema_version": SCHEMA_VERSION, "command": "review-eval", "host": args.host,
-              "model": args.model or None, "effort": args.effort or None, "tier": args.tier or None,
+    report = {"schema_version": SCHEMA_VERSION, "command": "review-eval", "skill": args.skill,
+              "host": args.host, "model": args.model or None, "effort": args.effort or None, "tier": args.tier or None,
               "summary": summary, "fixtures": results}
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
-    print(f"MiniMe review eval: {args.host} model={args.model or 'default'} "
+    print(f"MiniMe review eval: {args.skill} on {args.host} model={args.model or 'default'} "
           f"effort={args.effort or 'default'} tier={args.tier or 'all'}")
     for name, layer in sorted(summary.items()):
         print(f"  {name}: " + ", ".join(f"{k} {v}" for k, v in sorted(layer.items())))
@@ -2175,6 +2181,8 @@ def build_parser() -> argparse.ArgumentParser:
     review_eval = sub.add_parser("review-eval",
                                  help="score headless reviews on planted-defect fixtures (Decision 9)")
     review_eval.add_argument("--host", choices=["claude", "codex"], required=True)
+    review_eval.add_argument("--skill", choices=sorted(EVAL_SKILLS), default="code-reviewer",
+                             help="skill to score (default code-reviewer)")
     review_eval.add_argument("--run", action="store_true",
                              help="invoke the host; without it, list fixtures only")
     review_eval.add_argument("--model", help="model passed to the host")
@@ -2184,7 +2192,7 @@ def build_parser() -> argparse.ArgumentParser:
                              help="limit to a fixture difficulty tier (default: all)")
     review_eval.add_argument("--jobs", type=int, default=4, help="parallel reviews (default 4)")
     review_eval.add_argument("--timeout", type=int, default=900, help="seconds per review (default 900)")
-    review_eval.add_argument("--fixtures", help=f"fixture root (default {REVIEW_EVAL_ROOT})")
+    review_eval.add_argument("--fixtures", help="fixture root (default: evals/<skill root>)")
     review_eval.add_argument("--host-bin", help="host executable (default: found on PATH)")
     review_eval.add_argument("--json", action="store_true")
     review_eval.set_defaults(func=command_review_eval)

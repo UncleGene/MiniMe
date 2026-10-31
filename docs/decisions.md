@@ -219,7 +219,7 @@ current position.
 
 ## Decision 14 — Installer-generated host adapters
 
-- Status: accepted; implemented for Claude Code review.
+- Status: accepted; implemented for Claude Code review and doc check.
 - Context: skills declare `model_tier`, which no host reads yet. Model, effort
   and subagent mechanisms differ by host.
 - Decision: skills name a tier and a context (fresh or main) for each step. The
@@ -231,12 +231,31 @@ current position.
 - Consequences: the installer grows, and tier mappings, like the audit's
   list-price table, must keep pace with new models and prices. A fresh-context skill only forks when its caller invokes it through
   the host's skill mechanism; reading its file runs it inline.
-- Current scope: `minime-code-reviewer` declares `model_tier: fast` and
-  `minime_context: fresh`. Into `~/.claude/skills` the installer adds
-  `context: fork`, `background: false` and `model: sonnet`; other hosts get
-  the source unchanged, because the cheaper Codex model missed a hard-tier
+- Current scope: `minime-code-reviewer` and `minime-doc-check` declare
+  `model_tier: fast` and `minime_context: fresh`. Into `~/.claude/skills` the
+  installer adds `context: fork`, `background: false` and `model: sonnet`;
+  other hosts get the source unchanged, because the cheaper Codex model missed a hard-tier
   defect. A host-capability table replaces the inline mapping when a second
   host gains an adapter (REQ-011).
+- Amendment (2026-10-20): a tier takes effect only for a fresh-context skill;
+  an inline skill runs on the session model, so its tier records the work's
+  difficulty for a later fork. A skill is a fork candidate when its input fits
+  an argument, it returns a verdict without asking the user mid-procedure, it
+  reads many files, and fixtures can measure it. The `diff` scope of
+  `minime-doc-sync`, report-only with risky updates returned to the caller, is
+  the next candidate; it becomes fresh-context on the fast tier only after
+  planted stale-doc fixtures show detection holds there (done; see below).
+- Amendment (2026-10-25): those fixtures passed on Sonnet 5.5 as on Opus 5.5.
+  A fork covers a whole skill, and `minime-doc-sync`'s `document` and `all`
+  scopes and apply mode surface updates to the user, so the report-only diff
+  audit moves into `minime-doc-check` (fast tier, fresh context). The `diff`
+  scope of `minime-doc-sync` invokes it through the host's skill mechanism and
+  applies or surfaces its findings in the main session, so commit gates still
+  name `minime-doc-sync`. Alternatives: fork all of `minime-doc-sync` (breaks
+  the questions its other scopes ask); fork one scope through new installer
+  metadata (a new adapter mechanism for one caller). Cost: one more skill to
+  install and keep in step. Keep the fork only if priced cost per gated change
+  falls and the misfire counts do not rise.
 
 ## Decision 15 — Cross-agent second opinion
 
