@@ -57,3 +57,21 @@ Action taken:
   commit-skill read: replayed on the final transcript it passed, so the read
   was not yet written when the hook ran. The gate now re-reads the
   transcript for up to 2 seconds before blocking.
+
+## 2026-10-17 — Cost is priced tokens; the commit gate over-matches
+
+Context: checking whether enough target-project data exists to measure the
+forked reviewer.
+
+Action taken:
+- The audit had no per-commit metric and mixed review-eval runs into host
+  totals. It now reports gated commit turns by model, with their subagents,
+  and excludes review-eval runs.
+- The user ruled that cost, not raw tokens, is the target: fewer tokens or a
+  smaller model can cost more. Recorded in Decision 1 and REQ-010; pricing is
+  the next plan step.
+- `--since` compared offset datetimes as strings and widened the window by
+  the offset; it now converts to UTC.
+- The agent commit gate blocked plain edit commands whose text mentioned a
+  commit, a second over-match after the scratch-repo case. Follow-up trigger
+  met: the gate now ignores heredoc bodies that do not feed a shell.

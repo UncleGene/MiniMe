@@ -97,11 +97,23 @@ Behavior:
 - Flags, once per turn: `no-next-action`, `next-action-unformatted`,
   `prose-question` (Claude only), `commit-unverified` (no test or check command
   before the commit in that turn) and `commit-without-commit-skill`.
-- Reports token counts (`input`, `cache_read`, `cache_write`, `output`):
+- Reports token counts (`input`, `cache_read`, `cache_write`, `output`) and
+  their list-price cost (`cost_usd_micros`, millionths of a dollar):
   - per host, split between the main context and subagent transcripts
     (Claude Code only; Codex sessions all count as main);
   - for MiniMe turns, by `model/effort`;
-  - per skill, summed over the turns that loaded it.
+  - per skill, summed over the turns that loaded it;
+  - per host, for gated commit turns (main-context turns that loaded a commit
+    skill and ran `git commit`), by `model/effort`, including the Claude Code
+    subagents each turn started (REQ-010).
+
+  Cost prices each request from a dated table in `scripts/minime` of published
+  API list prices, which stand in for plan quota. The table covers each token
+  type, Claude Code's 5-minute and 1-hour cache writes, and the prompt-size
+  tiers of Claude Haiku 5.5 (over 100K) and the OpenAI models (over 272K).
+  Models missing from the table, and Claude fast mode or non-global routing,
+  cost 0 and are listed per host as `unpriced_models`; update the table when
+  prices or models change.
 
   A turn that loads several skills counts toward each one, so per-skill totals
   overlap. A turn is one user prompt and all the work that follows it, so the
@@ -109,6 +121,14 @@ Behavior:
   in size, so compare a host with itself over time, not with the other host.
   Claude Code records that repeat a message's usage are counted once; Codex
   usage comes from increases in its cumulative totals.
+- Counts gate blocks per host: slop-scan blocks in the output of a commit
+  command, and turns with a blocking `Verdict: fix` or `Verdict: route` line; a
+  forked review counts once, on the main turn that started it.
+- Excludes `review-eval` runs, recognized by a prompt that starts with the
+  review-eval prompt, and the subagents they fork; their count is reported per
+  host.
+- `--since` takes a date or a datetime; a datetime with an offset is converted
+  to UTC, the time zone of transcript timestamps.
 - Findings are heuristics; verify each one in the transcript before acting.
 - Projects are reported as `project-N` and sessions as an 8-character id. No
   paths or message text are printed. Writes nothing.
@@ -213,7 +233,8 @@ Behavior:
   command that contains a complete read command as data, such as a heredoc,
   can still count as a load.
 - Sessions that never loaded a MiniMe skill, commands that only mention
-  `git commit`, and unreadable transcripts pass.
+  `git commit` (including in a heredoc body, unless a shell, `eval`, `source`
+  or `.` on the `<<` line may run it), and unreadable transcripts pass.
 - Before blocking, the gate re-reads the transcript for up to 2 seconds,
   because a skill read sent in the same parallel batch as the commit can reach
   the transcript after the hook starts.

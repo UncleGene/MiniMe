@@ -1008,8 +1008,12 @@ class TranscriptAuditCLITests(unittest.TestCase):
                 record["effort"] = effort
             return record
 
-        def bash(command):
-            return {"type": "tool_use", "name": "Bash", "input": {"command": command}}
+        def bash(command, call_id=None):
+            return {"type": "tool_use", "name": "Bash", "id": call_id, "input": {"command": command}}
+
+        def tool_result(call_id, text):
+            return {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": text}]}]}}
 
         self._write(root / "proj" / "aaaaaaaa-1111.jsonl", [
             user("<command-name>/minime-code-reviewer</command-name> secret text", "2026-10-01T00:00:00Z"),
@@ -1023,19 +1027,40 @@ class TranscriptAuditCLITests(unittest.TestCase):
             assistant({"type": "tool_use", "name": "Read",
                        "input": {"file_path": "/h/.claude/skills/minime-scope-boundary/SKILL.md"}},
                       bash("cat /h/.claude/skills/minime-project-commit/SKILL.md"),
-                      bash("python -m pytest && git commit -m y"),
-                      {"type": "text", "text": "Committed.\nRecommended next action: release."},
+                      bash("cat scripts/slop-scan", "r1"),
+                      bash("python -m pytest && git commit -m y", "c1"),
                       usage=("m2", "claude-x", "high", (1, 0, 2000, 7))),
+            # Only the commit's output counts; reading the hook source does not.
+            tool_result("r1", 'sys.stderr.write("Commit blocked by the slop scan:\\n")'),
+            tool_result("c1", "Commit blocked by the slop scan:\n  secret.py:1: todo"),
+            assistant({"type": "text", "text": "Committed.\nRecommended next action: release."}),
         ])
-        sidechain = assistant({"type": "text", "text": "secret result"},
+        sidechain = assistant({"type": "text", "text": "secret result\n- **Verdict:** fix"},
                               usage=("m3", "claude-fast", None, (3, 0, 50, 2)))
         sidechain["isSidechain"] = True
         # Records without a message id cannot be deduplicated; count each one.
         no_id = assistant(usage=(None, "claude-fast", None, (1, 0, 10, 1)))
         self._write(root / "proj" / "aaaaaaaa-1111" / "subagents" / "agent-1.jsonl", [
-            {**user("review this secret diff", "2026-10-08T00:00:00Z"), "isSidechain": True},
+            {**user("review this secret diff", "2026-10-08T00:00:00Z"), "isSidechain": True,
+             "sessionId": "aaaaaaaa-1111"},
             sidechain, no_id, no_id,
         ])
+        # A review-eval run and the reviewer subagent it forks are excluded.
+        eval_prompt = ("Review the uncommitted changes in this repository (run `git diff`) "
+                       "with the minime-code-reviewer skill")
+        eval_reply = assistant({"type": "text", "text": "Verdict: fix"},
+                               usage=("m4", "claude-x", "high", (9, 9, 9, 9)))
+        self._write(root / "tmp-repo" / "cccccccc-3333.jsonl", [
+            {**user(eval_prompt, "2026-10-08T00:00:00Z"), "sessionId": "cccccccc-3333"}, eval_reply])
+        self._write(root / "tmp-repo" / "cccccccc-3333" / "subagents" / "agent-2.jsonl", [
+            {**user("Base directory for this skill: x", "2026-10-08T00:00:00Z"),
+             "isSidechain": True, "sessionId": "cccccccc-3333"}, eval_reply])
+        # Quoting the eval prompt, or loading a commit skill without committing,
+        # is ordinary work: not excluded, not a gated commit.
+        self._write(root / "proj" / "dddddddd-4444.jsonl", [
+            user(f"why does `{eval_prompt}` fail?", "2026-10-08T00:00:00Z"),
+            assistant(bash("cat /h/.claude/skills/minime-project-commit/SKILL.md"),
+                      {"type": "text", "text": "Recommended next action: rerun."})])
 
     def _codex_session(self, root: Path) -> None:
         def item(payload, ts="2026-10-08T00:00:00Z"):
@@ -1055,8 +1080,23 @@ class TranscriptAuditCLITests(unittest.TestCase):
                 {"type": "input_text", "text": "<skill>\n<name>minime-doc-sync</name> secret"}]}),
             item({"type": "function_call", "name": "exec_command",
                   "arguments": json.dumps({"cmd": "sed -n 1,40p ~/.codex/skills/minime-replan/SKILL.md"})}),
+            item({"type": "function_call_output", "output": "Commit blocked by the slop scan:"}),
+            item({"type": "function_call", "name": "exec_command", "call_id": "k1",
+                  "arguments": json.dumps({"cmd": "python -m pytest && git commit -m z"})}),
+            item({"type": "function_call_output", "call_id": "k1", "output": "Commit blocked by the slop scan:"}),
+            item({"type": "message", "role": "assistant", "content": [
+                {"type": "output_text", "text": "Verdict: route to the plan"}]}),
             {"type": "event_msg", "payload": {"type": "task_complete",
                                               "last_agent_message": "Synced; next step is review."}},
+        ])
+        eval_prompt = ("Review the uncommitted changes in this repository (run `git diff`) "
+                       "with the minime-code-reviewer skill")
+        self._write(root / "2026" / "rollout-eeeeeeee-5555.jsonl", [
+            {"type": "session_meta", "payload": {"id": "eeeeeeee-5555", "cwd": self.PRIVATE}},
+            {"type": "event_msg", "timestamp": "2026-10-08T00:00:00Z", "payload": {"type": "task_started"}},
+            item({"type": "message", "role": "user", "content": [{"type": "input_text", "text": eval_prompt}]}),
+            {"type": "event_msg", "payload": {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 9, "cached_input_tokens": 0, "output_tokens": 9}}}},
         ])
 
     def _run(self, *extra: str) -> dict:
@@ -1079,20 +1119,21 @@ class TranscriptAuditCLITests(unittest.TestCase):
         report = self._run()
         self.assertEqual(report["skill_loads"], {
             "minime-code-reviewer": 1, "minime-doc-sync": 1,
-            "minime-project-commit": 1, "minime-replan": 1, "minime-scope-boundary": 1})
+            "minime-project-commit": 2, "minime-replan": 1, "minime-scope-boundary": 1})
         found = {(f["host"], f["turn"], f["type"]) for f in report["findings"]}
         self.assertEqual(found, {
             ("claude", 1, "commit-unverified"),
             ("claude", 1, "commit-without-commit-skill"),
             ("claude", 1, "no-next-action"),
             ("claude", 1, "prose-question"),
+            ("codex", 1, "commit-without-commit-skill"),
             ("codex", 1, "next-action-unformatted"),
         })
         self.assertEqual({f["project"] for f in report["findings"]}, {"project-1"})
 
     def test_reports_token_usage_by_host_model_and_skill(self):
-        def usage(i, r, w, o):
-            return {"input": i, "cache_read": r, "cache_write": w, "output": o}
+        def usage(i, r, w, o):  # The fixture models have no price, so cost 0.
+            return {"input": i, "cache_read": r, "cache_write": w, "output": o, "cost_usd_micros": 0}
 
         report = self._run()
         self.assertEqual(report["hosts"]["claude"]["tokens"],
@@ -1105,15 +1146,74 @@ class TranscriptAuditCLITests(unittest.TestCase):
         self.assertEqual(report["skill_tokens"], {
             "minime-code-reviewer": {"turns": 1, **usage(10, 1000, 100, 5)},
             "minime-doc-sync": {"turns": 1, **usage(200, 600, 0, 30)},
-            "minime-project-commit": {"turns": 1, **usage(1, 2000, 0, 7)},
+            "minime-project-commit": {"turns": 2, **usage(1, 2000, 0, 7)},
             "minime-replan": {"turns": 1, **usage(200, 600, 0, 30)},
             "minime-scope-boundary": {"turns": 1, **usage(1, 2000, 0, 7)}})
+
+    def test_reports_gated_commits_gate_blocks_and_excludes_review_eval(self):
+        report = self._run()
+        claude, codex = report["hosts"]["claude"], report["hosts"]["codex"]
+        self.assertEqual((claude["sessions"], claude["review_eval_sessions"]), (3, 1))
+        self.assertEqual((codex["sessions"], codex["review_eval_sessions"]), (1, 1))
+        # Only turn 2 loaded a commit skill and committed. Its cost includes the
+        # reviewer subagent it started, kept apart by model for pricing.
+        self.assertEqual(claude["gated_commits"], {"turns": 1, "usage": {
+            "claude-x/high": {"input": 1, "cache_read": 2000, "cache_write": 0, "output": 7, "cost_usd_micros": 0},
+            "claude-fast": {"input": 5, "cache_read": 70, "cache_write": 0, "output": 4, "cost_usd_micros": 0}}})
+        self.assertEqual(claude["unpriced_models"], ["claude-fast", "claude-x"])
+        # The subagent's blocking verdict counts once, on the main turn.
+        self.assertEqual(claude["gate_blocks"], {"slop_scan": 1, "review": 1})
+        self.assertEqual(codex["gated_commits"]["turns"], 0)
+        self.assertEqual(codex["gate_blocks"], {"slop_scan": 1, "review": 1})
+
+    def test_prices_requests_by_model_cache_ttl_and_prompt_tier(self):
+        with tempfile.TemporaryDirectory() as d:
+            claude, codex = Path(d) / "claude", Path(d) / "codex"
+
+            def message(message_id, usage, model="claude-opus-5-5"):
+                return {"type": "assistant", "message": {"id": message_id, "model": model,
+                                                         "role": "assistant", "content": [], "usage": usage}}
+
+            self._write(claude / "p" / "s.jsonl", [
+                {"type": "user", "timestamp": "2026-10-08T00:00:00Z", "message": {"role": "user", "content": "go"}},
+                # $4 input, $0.20 read, $5 5m write, $8 1h write, $20 output per MTok.
+                message("m1", {"input_tokens": 1000, "cache_read_input_tokens": 100_000,
+                               "cache_creation_input_tokens": 3000, "output_tokens": 500,
+                               "cache_creation": {"ephemeral_1h_input_tokens": 2000}}),
+                # Fast mode has other prices, so it stays unpriced.
+                message("m2", {"input_tokens": 1, "output_tokens": 1, "speed": "fast"}),
+                # A 150K Haiku 5.5 prompt is over 100K: $0.50 input, $0.05 read, $2.50 output.
+                message("m3", {"input_tokens": 50_000, "cache_read_input_tokens": 100_000,
+                               "output_tokens": 1000}, "claude-haiku-5-5")])
+            delta = {"input_tokens": 300_000, "cached_input_tokens": 200_000, "output_tokens": 1000}
+            self._write(codex / "rollout-s.jsonl", [
+                {"type": "event_msg", "timestamp": "2026-10-08T00:00:00Z", "payload": {"type": "task_started"}},
+                {"type": "turn_context", "payload": {"model": "gpt-6.1-sol"}},
+                # A 300K prompt is over 272K: $4 input, $0.20 cached, $15 output per MTok.
+                {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": delta}}}])
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "transcript-audit",
+                 "--claude-root", str(claude), "--codex-root", str(codex), "--json"],
+                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hosts = json.loads(result.stdout)["hosts"]
+        self.assertEqual(hosts["claude"]["tokens"]["main"]["cost_usd_micros"],
+                         4 * 1000 + 0.20 * 100_000 + 5 * 1000 + 8 * 2000 + 20 * 500
+                         + 0.50 * 50_000 + 0.05 * 100_000 + 2.50 * 1000)
+        self.assertEqual(hosts["claude"]["unpriced_models"], ["claude-opus-5-5 (fast)"])
+        self.assertEqual(hosts["codex"]["tokens"]["main"]["cost_usd_micros"],
+                         4 * 100_000 + 0.20 * 200_000 + 15 * 1000)
+
+    def test_since_compares_offset_times_in_utc(self):
+        # 20:00-07:00 is 03:00Z on 10-08, after every 10-08T00:00Z turn.
+        report = self._run("--since", "2026-10-07T20:00:00-07:00")
+        self.assertEqual(report["hosts"]["claude"]["minime_turns"], 0)
 
     def test_since_skips_older_turns(self):
         report = self._run("--since", "2026-10-05")
         self.assertEqual({(f["host"], f["type"]) for f in report["findings"]},
-                         {("codex", "next-action-unformatted")})
-        self.assertEqual(report["hosts"]["claude"]["minime_turns"], 1)
+                         {("codex", "commit-without-commit-skill"), ("codex", "next-action-unformatted")})
+        self.assertEqual(report["hosts"]["claude"]["minime_turns"], 2)
 
 
 class ReviewEvalCLITests(unittest.TestCase):
@@ -1388,6 +1488,16 @@ class AgentHookCLITests(unittest.TestCase):
                 "~/.codex/skills/minime-project-commit/SKILL.md\"})')\nEOF"))], "git commit -m x", 2),
             ("a command that only mentions git commit", orchestrated, 'grep -n "git commit" notes.md', 0),
             ("a piped commit", orchestrated, "printf msg | git commit -F -", 2),
+            ("a commit only mentioned in a heredoc body", orchestrated,
+             "python3 - <<'EOF'\nrun('pytest && git commit -m y')\ndoc = 'ran `git commit`'\nEOF", 0),
+            *[(f"a commit in a heredoc fed to a shell: {feed}", orchestrated,
+               feed.replace("BODY", "\ngit commit -m x\nEOF"), 2) for feed in (
+                "bash <<EOFBODY", "tcsh <<EOFBODY", "cat <<EOF | fishBODY", "cat <<EOF | sh -sBODY", "eval \"$(cat <<'EOF'BODY\n)\"",
+                "source /dev/stdin <<EOFBODY", ". /dev/stdin <<EOFBODY")],
+            ("a commit in an unterminated heredoc", orchestrated, "python3 - <<EOF\ngit commit -m x", 2),
+            ("a commit message from a heredoc", orchestrated,
+             'git commit -m "$(cat <<\'EOF\'\nmsg\nEOF\n)"', 2),
+            ("a commit after a heredoc", orchestrated, "cat > f <<EOF\nx\nEOF\ngit commit -m x", 2),
         ]
         with tempfile.TemporaryDirectory() as d:
             for name, records, command, code in cases:

@@ -17,7 +17,9 @@ current position.
     without the user catching its defects (REQ-003).
   - Secondary: token, model and effort cost (REQ-010). It ranks below quality:
     a cheaper model, a delegation or a lighter gate is accepted only if
-    planted-defect detection (Decision 9) holds.
+    planted-defect detection (Decision 9) holds. Cost means tokens priced by
+    model and token type, measured, not assumed: fewer tokens or a smaller
+    model can still cost more.
   - Portability across hosts (Decision 4, REQ-011).
 - Alternatives: a single "reliable delivery" goal leaves the quality bar
   undefined and cost unmanaged.
@@ -221,8 +223,8 @@ current position.
   host's subagent, model, effort and headless command.
 - Alternatives: portable prose only (each session guesses the mapping); drop
   `model_tier` (leaves the cost goal without a lever).
-- Consequences: the installer grows, and tier mappings must keep pace with new
-  models. A fresh-context skill only forks when its caller invokes it through
+- Consequences: the installer grows, and tier mappings, like the audit's
+  list-price table, must keep pace with new models and prices. A fresh-context skill only forks when its caller invokes it through
   the host's skill mechanism; reading its file runs it inline.
 - Current scope: `minime-code-reviewer` declares `model_tier: fast` and
   `minime_context: fresh`. Into `~/.claude/skills` the installer adds

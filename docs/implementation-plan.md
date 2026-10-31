@@ -17,8 +17,10 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
   5.5 (Decision 14); other hosts run it inline on the session model.
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
-- `transcript-audit` reports skill loads, token cost and observable contract
-  misfires from local transcripts.
+- `transcript-audit` reports skill loads, tokens and their list-price cost
+  (also per gated commit turn, including its subagents), slop-scan and
+  blocking-review gate blocks, and observable contract misfires from local
+  transcripts, excluding `review-eval` runs.
 - Full test, lint, type, documentation and review gates must pass before every
   commit. Commands are in [the developer guide](development.md).
 
@@ -58,10 +60,12 @@ host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Measure the effect of the forked reviewer: compare main-context tokens per
-gated commit in `transcript-audit` before and after it, on Claude Code. If they
-fall and the misfire counts hold, move verification to a fresh context the same
-way; otherwise revisit the fork.
+Measure the forked reviewer: compare Claude Code's list-priced `gated_commits`
+cost per turn, main context plus subagents, before and after it (the full
+window minus a `--since` run from the fork). Wait until about ten gated commit
+turns across at least three target projects follow the fork; on 2026-10-17
+there were too few. If cost falls and misfire and gate-block counts hold, move
+verification to a fresh context the same way; otherwise revisit the fork.
 
 ## Open milestones
 
@@ -70,8 +74,8 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Have `transcript-audit` count slop-scan blocks and blocking review verdicts alongside framework misfires. Claude Code review already forks on the fast tier. Measure its token effect; run verification in a fresh fast-tier context; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; main-context tokens per gated change fall; fixture detection holds; misfire counts do not rise. |
-| Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Token and detection measurements do not regress. |
+| Model and effort routing | Claude Code review already forks on the fast tier. Measure its cost effect; run verification in a fresh fast-tier context if that costs less; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
+| Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Cost and detection measurements do not regress. |
 | Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
 | Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |
 | More stack profiles (lower priority) | Profiles and fixtures for Ruby, Rails, TypeScript/JavaScript, React and Vitest (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |

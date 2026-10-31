@@ -15,6 +15,12 @@ import time
 SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
 COMMIT_SKILLS = {"minime-project-commit", "minime-self-commit"}
 GIT_COMMIT_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|`)\s*git\s+(?:-[cC]\s+\S+\s+)*commit\b")
+# A heredoc body is data unless the heredoc feeds a shell, so a commit it only
+# mentions, as in a script or document written through one, is not run. Any
+# shell, eval or source word on the `<<` line counts as feeding one, even as an
+# argument: the gate errs toward checking the body.
+HEREDOC_RE = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(.*?\n)?[ \t]*\2[ \t]*(?=\n|$)", re.S)
+SHELL_RE = re.compile(r"\b(?:(?:ba|z|da|k|t?c|s)?sh|fish|eval|source|exec)\b|(?:^|[\s;&|(])\.\s")
 SLASH_SKILL_RE = re.compile(rf"<command-name>/?({SKILL_NAME})</command-name>")
 BASE_DIR_SKILL_RE = re.compile(rf"Base directory for this skill: \S*/({SKILL_NAME})\b")
 INJECTED_SKILL_RE = re.compile(rf"<skill>\s*<name>({SKILL_NAME})</name>")
@@ -95,10 +101,22 @@ def _loaded_skills(path: str) -> tuple[set[str], set[str]]:
     return session, turn
 
 
+def _executed_text(command: str) -> str:
+    """The command without the bodies of heredocs that do not feed a shell."""
+    def strip(match: re.Match) -> str:
+        line_start = command.rfind("\n", 0, match.start()) + 1
+        header = command[line_start:command.index("\n", match.start())]
+        if match.group(3) is None or SHELL_RE.search(header):
+            return match.group(0)
+        body_start, body_end = match.start(3) - match.start(), match.end(3) - match.start()
+        return match.group(0)[:body_start] + match.group(0)[body_end:]
+    return HEREDOC_RE.sub(strip, command)
+
+
 def blocked(event: dict) -> bool:
     if event.get("tool_name") != "Bash":
         return False
-    if not GIT_COMMIT_RE.search(str((event.get("tool_input") or {}).get("command", ""))):
+    if not GIT_COMMIT_RE.search(_executed_text(str((event.get("tool_input") or {}).get("command", "")))):
         return False
     # A commit sent in the same parallel batch as the skill read can reach the
     # hook before the read is written, so re-read briefly before blocking.

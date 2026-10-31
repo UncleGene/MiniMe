@@ -184,27 +184,34 @@ on-demand, read-only command scans local host transcripts for MiniMe skill loads
 and observable contract misfires, reporting placeholders only.
 
 Acceptance: `TranscriptAuditCLITests` pass: skill loads are counted for each
-load path; each finding type fires on a synthetic transcript; `--since` filters;
-transcripts are unchanged; no path or message text appears in the report.
+load path; each finding type fires on a synthetic transcript; slop-scan and
+blocking-review gate blocks are counted; review-eval runs are excluded;
+`--since` filters; transcripts are unchanged; no path or message text appears
+in the report.
 
 Links: Decisions 8/10; REQ-001/003/006.
 
 ## REQ-010 — Cost-appropriate execution
 
-Status: active; measurement implemented; Claude Code review runs forked on the
-fast tier; other routing pending.
+Status: active; token measurement, including per-model usage of each gated
+commit turn and its subagents, and list-price cost implemented; Claude Code
+review runs forked on the fast tier; other routing pending.
 Type: core. Priority: high.
 
-Skills run each step at the lowest model tier, effort level and context size
-that keeps the REQ-003 bar. Gates that need no main-session context run in a
-fresh, cheaper context where the host allows it. Ceremony scales with the risk
-of the change. Cost never ranks above quality (Decision 1).
+Skills run each step at the lowest-cost model, effort level and context that
+keeps the REQ-003 bar. Cost is tokens priced by model and token type, not raw
+token counts: fewer tokens or a smaller model is not cheaper by default, since
+a fresh context pays to rebuild its cache and a weaker model may need more
+work. Gates that need no main-session context run in a fresh context where the
+host allows it and it costs less. Ceremony scales with the risk of the change.
+Cost never ranks above quality (Decision 1).
 
 Acceptance: an on-demand transcript report gives the tokens and model for each
 MiniMe skill flow on each verified host, with counts only and no message text
 (Decision 8). Each skill's declared tier reaches the host through a generated
-adapter (Decision 14). A cost reduction is accepted only if main-context tokens
-per gated change fall and fixture detection holds.
+adapter (Decision 14). A routing change is accepted only if the priced cost per
+gated change, main context plus the subagents it starts, falls and fixture
+detection holds.
 
 Links: Decisions 1/9/10/14; REQ-003/007/009; TranscriptAuditCLITests.
 

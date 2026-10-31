@@ -1400,17 +1400,66 @@ CHECK_COMMAND_RE = re.compile(
 NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
 NEXT_STEP_HINT_RE = re.compile(r"next (?:action|step)|recommend", re.I)
 COMMIT_SKILLS = frozenset({"minime-project-commit", "minime-self-commit"})
-USAGE_FIELDS = ("input", "cache_read", "cache_write", "output")
+USAGE_FIELDS = ("input", "cache_read", "cache_write", "output", "cost_usd_micros")
+TOKEN_FIELDS = USAGE_FIELDS[:4]
+# Published API list prices in USD per million tokens, read on 2026-10-17 from
+# platform.claude.com/docs/en/about-claude/pricing and
+# developers.openai.com/api/docs/pricing. List price stands in for plan quota
+# (REQ-010). Each tier applies to requests whose prompt (input, cache read and
+# cache write tokens) is over its first value: (over, input, cache read,
+# 5-minute cache write, 1-hour cache write, output). OpenAI has one write rate.
+# A model missing here is reported as unpriced; add it rather than guessing.
+PRICES: dict[str, list[tuple[int, float, float, float, float, float]]] = {
+    "claude-fable-5-1": [(0, 10, 0.25, 12.5, 20, 50)],
+    "claude-opus-5-5": [(0, 4, 0.20, 5, 8, 20)],
+    "claude-opus-5": [(0, 5, 0.50, 6.25, 10, 25)],
+    "claude-sonnet-5-5": [(0, 2, 0.10, 2.5, 4, 10)],
+    "claude-sonnet-5": [(0, 2, 0.20, 2.5, 4, 10)],
+    "claude-haiku-5-5": [(0, 0.10, 0.01, 0.125, 0.20, 0.50), (100_000, 0.50, 0.05, 0.625, 1, 2.50)],
+    "gpt-6.1-sol": [(0, 2, 0.10, 2.5, 2.5, 10), (272_000, 4, 0.20, 5, 5, 15)],
+    "gpt-6-luna": [(0, 0.10, 0.01, 0.125, 0.125, 0.50), (272_000, 0.20, 0.02, 0.25, 0.25, 0.75)],
+    "gpt-5.6-sol": [(0, 4, 0.40, 5, 5, 20), (272_000, 8, 0.80, 10, 10, 30)],
+    "gpt-5.6-terra": [(0, 2, 0.20, 2.5, 2.5, 12), (272_000, 4, 0.40, 5, 5, 18)],
+}
+# Gate blocks: the slop-scan hook's stderr line and a reviewer verdict line.
+SLOP_BLOCK_MARKER = "Commit blocked by the slop scan"
+BLOCKING_VERDICT_RE = re.compile(r"^[\s>*_-]*verdict\W{0,4}(?:fix|route)\b", re.I | re.M)
 
 
 def _new_turn(timestamp: str) -> dict[str, Any]:
     return {"timestamp": timestamp, "skills": set(), "commands": [], "final": "",
-            "asked_with_ui": False, "usage": {}}
+            "asked_with_ui": False, "usage": {}, "slop_blocks": 0, "blocking_review": False,
+            "commit_calls": set(), "subagent_turns": []}
+
+
+def _is_review_eval_prompt(text: str) -> bool:
+    return text.lstrip().startswith(REVIEW_PROMPT.split("{", 1)[0])
 
 
 def _add_usage(totals: dict[str, int], counts: dict[str, int]) -> None:
     for field in USAGE_FIELDS:
         totals[field] = totals.get(field, 0) + counts.get(field, 0)
+
+
+def _priced_usage(session: dict, model: str, counts: dict[str, int], write_1h: int = 0) -> dict[str, int]:
+    """One request's token counts plus its list-price cost in micro-dollars;
+    a model without a price is recorded as unpriced and costs 0."""
+    tiers = PRICES.get(model)
+    if not tiers:
+        if any(counts.values()):
+            session["unpriced"].add(model)
+        return {**counts, "cost_usd_micros": 0}
+    prompt = counts["input"] + counts["cache_read"] + counts["cache_write"]
+    _, rate_in, rate_read, rate_5m, rate_1h, rate_out = [t for t in tiers if prompt > t[0] or t is tiers[0]][-1]
+    # USD per million tokens times tokens is micro-dollars.
+    cost = (rate_in * counts["input"] + rate_read * counts["cache_read"]
+            + rate_5m * (counts["cache_write"] - write_1h) + rate_1h * write_1h + rate_out * counts["output"])
+    return {**counts, "cost_usd_micros": round(cost)}
+
+
+def _usage_text(counts: dict[str, int], turns: int = 1) -> str:
+    return (", ".join(f"{k} {counts[k] // turns}" for k in TOKEN_FIELDS)
+            + f", cost ${counts['cost_usd_micros'] / turns / 1e6:.2f}")
 
 
 def _model_key(model: Any, effort: Any) -> str:
@@ -1429,16 +1478,23 @@ def _jsonl_records(path: Path):
 
 
 def _parse_claude_transcript(path: Path) -> dict[str, Any]:
-    session: dict[str, Any] = {"id": path.stem, "cwd": "", "turns": [], "subagent": False}
+    session: dict[str, Any] = {"id": path.stem, "parent": "", "cwd": "", "turns": [],
+                               "subagent": False, "eval": False, "unpriced": set()}
     turn: dict[str, Any] | None = None
     counted_messages: set[str] = set()
     for record in _jsonl_records(path):
         session["cwd"] = session["cwd"] or record.get("cwd") or ""
+        session["parent"] = session["parent"] or record.get("sessionId") or ""
         session["subagent"] = session["subagent"] or bool(record.get("isSidechain"))
         message = record.get("message") or {}
         content = message.get("content")
         blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
         if record.get("type") == "user":
+            for block in blocks:
+                if (isinstance(block, dict) and block.get("type") == "tool_result" and turn is not None
+                        and block.get("tool_use_id") in turn["commit_calls"]
+                        and SLOP_BLOCK_MARKER in json.dumps(block.get("content"))):
+                    turn["slop_blocks"] += 1
             texts = [b.get("text", "") for b in blocks
                      if isinstance(b, dict) and b.get("type") == "text"]
             if not texts or (record.get("isMeta") and turn is not None):
@@ -1446,6 +1502,8 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
                     turn["skills"].update(SLASH_SKILL_RE.findall("\n".join(texts)))
                 continue
             text = "\n".join(texts)
+            if not session["turns"]:
+                session["eval"] = _is_review_eval_prompt(text)
             if turn is None or not text.lstrip().startswith("Base directory for this skill"):
                 turn = _new_turn(record.get("timestamp", ""))
                 session["turns"].append(turn)
@@ -1456,17 +1514,23 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
             if isinstance(usage, dict) and (message_id is None or message_id not in counted_messages):
                 if message_id is not None:
                     counted_messages.add(str(message_id))
-                _add_usage(turn["usage"].setdefault(
-                    _model_key(message.get("model"), record.get("effort")), {}), {
-                    "input": usage.get("input_tokens") or 0,
-                    "cache_read": usage.get("cache_read_input_tokens") or 0,
-                    "cache_write": usage.get("cache_creation_input_tokens") or 0,
-                    "output": usage.get("output_tokens") or 0})
+                model = str(message.get("model") or "unknown")
+                variant = [v for v in (usage.get("speed"), usage.get("inference_geo"))
+                           if v not in (None, "standard", "global", "not_available")]
+                _add_usage(turn["usage"].setdefault(_model_key(model, record.get("effort")), {}), _priced_usage(
+                    session, f"{model} ({', '.join(map(str, variant))})" if variant else model, {
+                        "input": usage.get("input_tokens") or 0,
+                        "cache_read": usage.get("cache_read_input_tokens") or 0,
+                        "cache_write": usage.get("cache_creation_input_tokens") or 0,
+                        "output": usage.get("output_tokens") or 0},
+                    (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0))
             for block in blocks:
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "text" and block.get("text", "").strip():
                     turn["final"] = block["text"]
+                    if BLOCKING_VERDICT_RE.search(block["text"]):
+                        turn["blocking_review"] = True
                 elif block.get("type") == "tool_use":
                     name, data = block.get("name"), block.get("input") or {}
                     if name == "Skill" and re.fullmatch(SKILL_NAME, str(data.get("skill", ""))):
@@ -1479,13 +1543,16 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
                         command = str(data.get("command", ""))
                         turn["commands"].append(command)
                         turn["skills"].update(SKILL_READ_RE.findall(command))
+                        if GIT_COMMIT_RE.search(command) and block.get("id"):
+                            turn["commit_calls"].add(block["id"])
     return session
 
 
 def _parse_codex_transcript(path: Path) -> dict[str, Any]:
-    session: dict[str, Any] = {"id": path.stem[-36:], "cwd": "", "turns": [], "subagent": False}
+    session: dict[str, Any] = {"id": path.stem[-36:], "parent": "", "cwd": "", "turns": [],
+                               "subagent": False, "eval": False, "unpriced": set()}
     turn: dict[str, Any] | None = None
-    model = "unknown"
+    model, model_id = "unknown", "unknown"
     previous: dict[str, int] = {}
     for record in _jsonl_records(path):
         payload = record.get("payload") or {}
@@ -1496,7 +1563,8 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
             session["id"] = payload.get("id") or session["id"]
             session["cwd"] = payload.get("cwd") or ""
         elif record.get("type") == "turn_context":
-            model = _model_key(payload.get("model"), payload.get("effort"))
+            model_id = str(payload.get("model") or "unknown")
+            model = _model_key(model_id, payload.get("effort"))
         elif kind == "token_count":
             # Totals are cumulative per session; count only the increase.
             total = (payload.get("info") or {}).get("total_token_usage")
@@ -1509,11 +1577,11 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
             delta = {key: value - previous.get(key, 0) for key, value in current.items()}
             previous = current
             if turn is not None:
-                _add_usage(turn["usage"].setdefault(model, {}), {
+                _add_usage(turn["usage"].setdefault(model, {}), _priced_usage(session, model_id, {
                     "input": delta["input_tokens"] - delta["cached_input_tokens"],
                     "cache_read": delta["cached_input_tokens"],
                     "cache_write": delta["cache_write_input_tokens"],
-                    "output": delta["output_tokens"]})
+                    "output": delta["output_tokens"]}))
         elif kind == "task_started":
             turn = _new_turn(record.get("timestamp", ""))
             session["turns"].append(turn)
@@ -1521,14 +1589,29 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
             continue
         elif kind == "message" and payload.get("role") == "user":
             text = json.dumps(payload.get("content"))
+            session["eval"] = session["eval"] or any(
+                _is_review_eval_prompt(str(block.get("text", "")))
+                for block in payload.get("content") or [] if isinstance(block, dict))
             turn["skills"].update(INJECTED_SKILL_RE.findall(text.replace("\\n", "\n")))
             turn["skills"].update(DOLLAR_SKILL_RE.findall(text))
+        elif kind == "message" and payload.get("role") == "assistant":
+            if any(BLOCKING_VERDICT_RE.search(str(block.get("text", "")))
+                   for block in payload.get("content") or [] if isinstance(block, dict)):
+                turn["blocking_review"] = True
         elif kind in ("function_call", "custom_tool_call"):
             command = str(payload.get("arguments") or payload.get("input") or "")
             turn["commands"].append(command)
             turn["skills"].update(CODEX_SKILL_READ_RE.findall(command))
+            if GIT_COMMIT_RE.search(command) and payload.get("call_id"):
+                turn["commit_calls"].add(payload["call_id"])
+        elif kind in ("function_call_output", "custom_tool_call_output"):
+            if (payload.get("call_id") in turn["commit_calls"]
+                    and SLOP_BLOCK_MARKER in str(payload.get("output"))):
+                turn["slop_blocks"] += 1
         elif kind == "task_complete":
             turn["final"] = payload.get("last_agent_message") or ""
+            if BLOCKING_VERDICT_RE.search(turn["final"]):
+                turn["blocking_review"] = True
             turn["asked_with_ui"] = True  # Codex has no choice UI to check against.
     return session
 
@@ -1561,6 +1644,21 @@ def _transcript_findings(session: dict) -> list[dict]:
     return findings
 
 
+def _attach_subagent_turns(sessions: list[dict]) -> None:
+    """Attach each subagent turn to the latest main turn of its parent session
+    that started at or before it, so gated cost includes the subagents."""
+    main = {s["id"]: s for s in sessions if not s["subagent"]}
+    for session in sessions:
+        parent = main.get(session["parent"]) if session["subagent"] else None
+        if parent is None:
+            continue
+        for turn in session["turns"]:
+            owners = [t for t in parent["turns"] if t["timestamp"] <= turn["timestamp"]]
+            if owners:
+                owners[-1]["subagent_turns"].append(turn)
+                turn["attached"] = True
+
+
 def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
     parsers = {"claude": _parse_claude_transcript, "codex": _parse_codex_transcript}
     projects: dict[str, str] = {}
@@ -1570,19 +1668,42 @@ def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
     skill_tokens: dict[str, dict[str, int]] = {}
     for host, root in roots.items():
         stats: dict[str, Any] = {"sessions": 0, "sessions_with_minime": 0, "minime_turns": 0,
+                                 "review_eval_sessions": 0,
                                  "tokens": {"main": dict.fromkeys(USAGE_FIELDS, 0),
-                                            "subagent": dict.fromkeys(USAGE_FIELDS, 0)}}
-        files = sorted(root.rglob("*.jsonl")) if root.is_dir() else []
-        for path in files:
-            session = parsers[host](path)
+                                            "subagent": dict.fromkeys(USAGE_FIELDS, 0)},
+                                 "gated_commits": {"turns": 0, "usage": {}},
+                                 "gate_blocks": {"slop_scan": 0, "review": 0}, "unpriced_models": []}
+        parsed = [parsers[host](path) for path in sorted(root.rglob("*.jsonl"))] if root.is_dir() else []
+        # review-eval runs, and the subagents they fork, are not real work.
+        eval_ids = {s["parent"] or s["id"] for s in parsed if s["eval"]}
+        sessions = []
+        for session in parsed:
             session["turns"] = [t for t in session["turns"] if t["timestamp"] >= since]
             if not session["turns"]:
                 continue
+            if (session["parent"] or session["id"]) in eval_ids:
+                stats["review_eval_sessions"] += 0 if session["subagent"] else 1
+            else:
+                sessions.append(session)
+        _attach_subagent_turns(sessions)
+        stats["unpriced_models"] = sorted(set().union(*(s["unpriced"] for s in sessions)))
+        for session in sessions:
             stats["sessions"] += 1
             context = "subagent" if session["subagent"] else "main"
             for turn in session["turns"]:
                 for turn_usage in turn["usage"].values():
                     _add_usage(stats["tokens"][context], turn_usage)
+                stats["gate_blocks"]["slop_scan"] += turn["slop_blocks"]
+                # A forked review counts once, on the main turn that started it.
+                if not turn.get("attached") and (turn["blocking_review"] or any(
+                        t["blocking_review"] for t in turn["subagent_turns"])):
+                    stats["gate_blocks"]["review"] += 1
+                if (context == "main" and turn["skills"] & COMMIT_SKILLS
+                        and any(GIT_COMMIT_RE.search(c) for c in turn["commands"])):
+                    stats["gated_commits"]["turns"] += 1
+                    for owned in (turn, *turn["subagent_turns"]):
+                        for model_key, turn_usage in owned["usage"].items():
+                            _add_usage(stats["gated_commits"]["usage"].setdefault(model_key, {}), turn_usage)
             minime_turns = [t for t in session["turns"] if t["skills"]]
             if not minime_turns:
                 continue
@@ -1623,26 +1744,44 @@ def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
 def command_transcript_audit(args: argparse.Namespace) -> int:
     roots = {host: Path(getattr(args, f"{host}_root") or default).expanduser()
              for host, default in TRANSCRIPT_ROOTS.items()}
-    report = _transcript_audit(roots, args.since or "")
+    # Transcript timestamps are UTC strings; compare against UTC, not the offset given.
+    since = args.since or ""
+    try:
+        moment = dt.datetime.fromisoformat(since) if since else None
+    except ValueError:
+        print(f"transcript-audit: --since is not an ISO date or datetime: {since}", file=sys.stderr)
+        return 2
+    if moment is not None and moment.tzinfo is not None:
+        since = moment.astimezone(dt.timezone.utc).replace(tzinfo=None).isoformat()
+    report = _transcript_audit(roots, since)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     print("MiniMe transcript audit (read-only; heuristic, verify each finding)")
     for host, stats in report["hosts"].items():
         print(f"{host}: {stats['sessions']} sessions, {stats['sessions_with_minime']} with MiniMe, "
-              f"{stats['minime_turns']} MiniMe turns")
+              f"{stats['minime_turns']} MiniMe turns ({stats['review_eval_sessions']} review-eval "
+              "sessions excluded)")
         for context, counts in stats["tokens"].items():
-            print(f"  {context} tokens: " + ", ".join(f"{k} {counts[k]}" for k in USAGE_FIELDS))
+            print(f"  {context} tokens: " + _usage_text(counts))
+        gated = stats["gated_commits"]
+        print(f"  gated commit turns: {gated['turns']}"
+              + ("; per turn, main and subagent, by model/effort:" if gated["turns"] else ""))
+        for model_key, model_counts in sorted(gated["usage"].items()):
+            print(f"    {model_key}: " + _usage_text(model_counts, gated["turns"]))
+        if stats["unpriced_models"]:
+            print("  unpriced models (cost counted as 0): " + ", ".join(stats["unpriced_models"]))
+        print(f"  gate blocks: slop-scan {stats['gate_blocks']['slop_scan']}, "
+              f"review {stats['gate_blocks']['review']}")
     print()
     print("MiniMe-turn tokens by model/effort:")
     for host, models in report["minime_tokens"].items():
         for model_key, model_counts in sorted(models.items()):
-            print(f"  {host} {model_key}: " + ", ".join(f"{k} {model_counts[k]}" for k in USAGE_FIELDS))
+            print(f"  {host} {model_key}: " + _usage_text(model_counts))
     print()
     print("Tokens per skill (turns that loaded it; a turn loading several skills counts for each):")
     for skill, entry in report["skill_tokens"].items():
-        print(f"  {skill}: {entry['turns']} turns, "
-              + ", ".join(f"{k} {entry[k]}" for k in USAGE_FIELDS))
+        print(f"  {skill}: {entry['turns']} turns, " + _usage_text(entry))
     print()
     print("Skill loads:")
     for skill, count in report["skill_loads"].items():
