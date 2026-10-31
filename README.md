@@ -120,7 +120,7 @@ skill, as in the table below.
 | Entering an existing project cold | `minime-project-orient` | Reads guide, plan, latest checkpoint and git state; returns a verified briefing and next-action options. |
 | Inherited or drifted project | `minime-project-reassessment` | Judges goals, docs, design, code and tests; produces a prioritized repair plan. |
 | "What should I work on next?" | `minime-implementation-step-selector` | Picks the next concrete slice from the docs and repo state. |
-| New feature or a change of direction | `minime-course-correction-triage` | Checks the request against accepted decisions, traces impact and challenges value before any code. |
+| New feature or a change of direction | `minime-course-correction-triage` | Checks the request against accepted decisions, traces impact and challenges value before any code, scaled to risk: one line for a low-risk change. |
 | Priorities shifted mid-project | `minime-replan` | Updates only the affected plan artifacts and selects the next slice. |
 | Bug or failing test | `minime-systematic-debugging` | Root cause first, fix second. |
 | Change is ready | `minime-project-commit` | Runs doc sync, scope check, simplification, review and verification, then shapes the commit. |

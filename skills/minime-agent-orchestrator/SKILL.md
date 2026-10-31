@@ -50,9 +50,9 @@ and produce a structured orchestration summary.
    by the project guide as described there.
 3. Examine the user's input for improvement signals. If the input names
    friction, a correction, or a quality concern, apply
-   `minime-course-correction-triage` before routing. Record the improvement
-   classification (local-project | reusable-skill | both | no action) in the
-   output. Do not skip this step.
+   `minime-course-correction-triage` at the risk tier it picks before routing.
+   Record the improvement classification (local-project | reusable-skill |
+   both | no action) in the output. Do not skip this step.
 4. Identify the minimal affected docs and code areas.
 5. Invoke the appropriate skill chain for the current phase or request type.
    When routing leads to implementation (`minime-implementation-step-selector`):

@@ -26,7 +26,11 @@ quality (REQ-010), and host portability (REQ-004/011). Scope is governed by
    existing directory. Internal skills stay here. Into `~/.claude/skills`,
    a skill whose metadata declares `minime_context: fresh` is installed with
    `context: fork`, `background: false` and its tier's model, so Claude Code
-   runs it in a subagent (Decision 14).
+   runs it in a subagent (Decision 14). One host-capability table in
+   `scripts/minime` (`HOSTS`) holds each host's skills root, transcripts,
+   choice UI, fork adapter, headless command and hooks; the installer, audits,
+   `review-eval` and hook installers read it, so a new host is one entry
+   (REQ-011).
 4. Hosts discover descriptions, load procedures, and execute them against the
    consuming project's own requirements and guide. MiniMe does not provide a
    workflow engine or enforce natural-language compliance.

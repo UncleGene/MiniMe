@@ -1340,6 +1340,21 @@ print("Review done.\\n```json\\n" + json.dumps({"verdict": "fix", "findings": fi
             self.assertEqual({f["id"]: f["outcome"] for f in report["fixtures"]},
                              {"project/stale": "detected", "project/control": "false-positive"})
 
+    def test_headless_commands_come_from_the_host_table(self):
+        reply = Path("/tmp/reply.txt")
+        for model, effort in (("", ""), ("m", "e")):
+            claude = minime._review_command("claude", "claude", "code-reviewer", model, effort, reply)
+            codex = minime._review_command("codex", "codex", "doc-check", model, effort, reply)
+            with self.subTest(model=model):
+                self.assertIn("minime-code-reviewer skill.", claude[2])
+                self.assertEqual(claude[:2] + claude[3:], ["claude", "-p", *(["--model", "m", "--effort", "e"] if model else []),
+                                                           "--allowedTools", "Read", "Grep", "Glob", "Skill",
+                                                           "Bash(git diff:*)", "Bash(git status:*)"])
+                self.assertIn("minime-doc-check skill ($minime-doc-check).", codex[-1])
+                self.assertEqual(codex[:-1], ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "--ephemeral",
+                                              "-o", str(reply),
+                                              *(["-m", "m", "-c", "model_reasoning_effort=e"] if model else [])])
+
     def test_dry_run_lists_fixtures_without_invoking_the_host(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "fixtures"
@@ -1726,7 +1741,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertTrue({"Host registration", "Fresh session", "Task outcomes",
                          "Product repo isolation"}.issubset(sections))
         self.assertIn("--skills-root", template)
-        for root in minime.ALL_SURFACE_ROOTS:
+        for root in minime._surface_roots():
             with self.subTest(root=root):
                 self.assertIn(root, template)
 
@@ -1905,6 +1920,39 @@ class DocumentationConsistencyTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assertEqual([p for p in phrases if p not in text], [])
 
+    RISK_TIER_GUARDS = {
+        "skills/minime-course-correction-triage/SKILL.md": [
+            "## risk tier (pick first)", "contradicts no accepted requirement, decision or invariant",
+            "`intake: low — contradicts nothing accepted; <why>; improvement: <classification>`",
+            "when in doubt, pick the higher tier", "commit gate tiers (light or full) are chosen separately"],
+        "skills/minime-decision-prompt/SKILL.md": [
+            "explain in plain terms any mechanism, cost or term",
+            "when a choice is low risk by the definition in `minime-course-correction-triage`, reversible and has a conventional default, state the default and proceed"],
+        "AGENTS.md": ["scale it to the change's risk tier", "a low-risk change states one intake line",
+                      "in the low risk tier, a reversible choice with a conventional default is stated, not asked"],
+    }
+
+    def test_ceremony_scales_with_risk_tier(self):
+        """Decision 16: intake and questions scale with one risk scale, and the
+        user sees a mechanism explained before options that depend on it.
+        This pins wording: rephrasing a rule means updating its phrase here.
+        """
+        for path, phrases in self.RISK_TIER_GUARDS.items():
+            text = " ".join((REPO_ROOT / path).read_text(encoding="utf-8").lower().split())
+            with self.subTest(path=path):
+                self.assertEqual([p for p in phrases if p not in text], [])
+
+    def test_step_selector_delegates_the_gate_chain_instead_of_restating_it(self):
+        """Regression: the selector's copy of the commit gate chain drifted and
+        dropped doc-sync and scope; `minime-project-commit` owns the chain."""
+        text = (REPO_ROOT / "skills" / "minime-implementation-step-selector" / "SKILL.md").read_text()
+        body = text.split("\n## Interaction rules\n", 1)[0]
+        self.assertIn("minime-project-commit", body)
+        self.assertIn("same turn", body)
+        for gate in ("minime-code-simplifier", "minime-code-reviewer", "minime-doc-sync"):
+            with self.subTest(gate=gate):
+                self.assertNotIn(gate, body)
+
     GATE_ORDER = ["minime-doc-sync", "minime-scope-boundary", "minime-code-simplifier",
                   "minime-code-reviewer", "minime-verification-gate"]
 
@@ -2018,15 +2066,15 @@ class SkillsInstallCLITests(unittest.TestCase):
     def test_default_install_surfaces_exclude_agents_root_to_avoid_codex_duplicates(self):
         self.assertNotIn(
             "~/.agents/skills",
-            minime.ALL_SURFACE_ROOTS,
+            minime._surface_roots(),
             "Codex scans ~/.agents/skills in addition to ~/.codex/skills, causing duplicate skills",
         )
 
     def test_default_install_surfaces_use_copilot_personal_skills_root(self):
-        self.assertIn("~/.copilot/skills", minime.ALL_SURFACE_ROOTS)
+        self.assertIn("~/.copilot/skills", minime._surface_roots())
         self.assertNotIn(
             "~/.config/github-copilot/skills",
-            minime.ALL_SURFACE_ROOTS,
+            minime._surface_roots(),
             "GitHub Copilot personal skills are loaded from ~/.copilot/skills",
         )
 
@@ -2040,6 +2088,34 @@ class SkillsInstallCLITests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("created", result.stdout)
             self.assertIn("Summary:", result.stdout)
+
+    def test_a_host_added_through_the_table_alone_is_installed_and_audited(self):
+        """REQ-011: one host-table entry is enough for install and the audit,
+        and a fork adapter declared there reaches that host's root only."""
+        from contextlib import redirect_stdout
+        from io import StringIO
+        acme = {"name": "Acme", "skills_root": "~/.acme/skills",
+                "fork": {"frontmatter": "acme-fork: {}\n", "models": {"fast": "acme-small"}}}
+        with tempfile.TemporaryDirectory() as d, \
+                patch.dict(os.environ, {"HOME": d}), patch.dict(minime.HOSTS, {"acme": acme}):
+            for spec in minime.HOSTS.values():
+                Path(spec["skills_root"]).expanduser().mkdir(parents=True)
+            with redirect_stdout(StringIO()):
+                self.assertEqual(minime.main(["skills", "install", "--write"]), 0)
+            for spec in minime.HOSTS.values():
+                root = Path(spec["skills_root"]).expanduser()
+                with self.subTest(root=spec["skills_root"]), redirect_stdout(StringIO()) as output:
+                    self.assertEqual(minime.main(["host-registration-audit", "--skills-root", str(root),
+                                                  "--json"]), 0, output.getvalue())
+            for host, spec in minime.HOSTS.items():
+                installed = (Path(spec["skills_root"]).expanduser() / "minime-code-reviewer" / "SKILL.md").read_text()
+                with self.subTest(host=host):
+                    self.assertEqual("\nacme-fork: acme-small\n" in installed, host == "acme")
+
+    def test_every_transcript_parser_has_a_transcripts_root_in_the_host_table(self):
+        for host in minime.TRANSCRIPT_PARSERS:
+            with self.subTest(host=host):
+                self.assertIn("transcripts", minime.HOSTS[host])
 
     def test_claude_root_runs_fresh_context_skills_in_a_forked_subagent(self):
         """Decision 14: Claude Code forks fresh-context skills; other hosts get the source."""
@@ -2517,7 +2593,7 @@ class InstallerSafetyTests(unittest.TestCase):
             (wrapper / "agents").symlink_to(victim, target_is_directory=True)
             output = StringIO()
             with patch.object(minime, "repo_root", return_value=source), \
-                    patch.object(minime, "ALL_SURFACE_ROOTS", [str(first), str(second)]), \
+                    patch.object(minime, "_surface_roots", return_value=[str(first), str(second)]), \
                     redirect_stdout(output):
                 result = minime.main(["skills", "install", "--write", "--force", "--json"])
             self.assertNotEqual(result, 0)

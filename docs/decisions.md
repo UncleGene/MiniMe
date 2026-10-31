@@ -64,8 +64,8 @@ current position.
   checks only.
 - Alternatives: four equally verified hosts (double the cost); two hosts only
   (drops hosts in active use).
-- Consequences: regressions on supported hosts surface later. A
-  host-capability table should make adding a host a table entry (REQ-011).
+- Consequences: regressions on supported hosts surface later. The
+  host-capability table makes adding a host a table entry (REQ-011).
 
 ## Decision 5 — Python 3.14+ for tooling
 
@@ -235,8 +235,8 @@ current position.
   `model_tier: fast` and `minime_context: fresh`. Into `~/.claude/skills` the
   installer adds `context: fork`, `background: false` and `model: sonnet`;
   other hosts get the source unchanged, because the cheaper Codex model missed a hard-tier
-  defect. A host-capability table replaces the inline mapping when a second
-  host gains an adapter (REQ-011).
+  defect. The mapping lives in the host-capability table (REQ-011), so another
+  host gains an adapter by declaring its fork entry there.
 - Amendment (2026-10-20): a tier takes effect only for a fresh-context skill;
   an inline skill runs on the session model, so its tier records the work's
   difficulty for a later fork. A skill is a fork candidate when its input fits
@@ -257,17 +257,46 @@ current position.
   install and keep in step. Keep the fork only if priced cost per gated change
   falls and the misfire counts do not rise.
 
-## Decision 15 — Cross-agent second opinion
+## Decision 15 — One CLI or agent per session
 
-- Status: accepted; not yet implemented.
-- Context: every review runs in the same model family as the work it checks,
-  so blind spots are correlated.
-- Decision: add an optional second-opinion step to code review and decision
-  challenges, triggered by risk tier and spare quota, that runs the other
-  verified host read-only. If that host is unavailable, fall back to a fresh
-  instance of the same host, or skip and report the skip. A project can opt
-  out of sending code to a second provider.
-- Alternatives: same-host fresh-context review only (cheaper, correlated blind
-  spots); always-on cross review (cost on every change).
-- Consequences: kept only if the fixtures show higher detection at an
-  acceptable cost. Depends on the host-capability table.
+- Status: accepted.
+- Context: MiniMe aims for quality first and cost second (Decision 1). Asking a
+  second CLI to review or take over work looked like a way to catch correlated
+  blind spots and to spare quota.
+- Decision: MiniMe works within the single CLI or agent the session runs in. It
+  delegates no work to another host's CLI: no cross-host second opinion or
+  offload. Handing a session to a later session or agent
+  (`minime-context-handoff`) is unaffected. Cost reduction comes from choosing
+  model and effort levels within that host (Decision 14), and each such change
+  must first show a measured benefit (REQ-010).
+- Alternatives: a cross-host second opinion (the other CLI lacks the session's
+  goal and in-chat decisions, so its findings skew to noise the main session
+  must argue down); offload to the other CLI when it has quota (local
+  transcripts showed Codex, not Claude Code, near its limits, so the premise
+  failed).
+- Consequences: blind spots stay correlated within one model family; the forked
+  reviewer and fixtures are the guard. Codex, Claude Code and the supported
+  hosts each still run MiniMe on their own (Decision 4).
+
+## Decision 16 — One risk scale for intake and questions
+
+- Status: accepted; implemented for intake and questions.
+- Context: every request paid the full written intake and most choices became
+  questions, so a typo fix cost as much ceremony as a requirement change
+  (REQ-010).
+- Decision: `minime-course-correction-triage` defines three tiers by what a
+  change touches, not its size. Low (reversible, local, contradicting nothing
+  accepted, and changing no requirement, decision, acceptance, safety,
+  security, data-format or public-interface text or behavior) states one intake
+  line that says so and records the improvement classification, and a
+  reversible choice with a conventional default is stated, not asked. Standard
+  states the three intake checks. High runs full triage and impact analysis.
+  When in doubt, the higher tier. `minime-decision-prompt` explains any new
+  mechanism or cost before the options. Commit gate tiers (Decision 7) are
+  unchanged.
+- Alternatives: reuse Decision 7's gate tiers (little saving: small code fixes
+  keep full intake); a diff-size
+  threshold (a one-line safety change would pass as low).
+- Consequences: an agent that misjudges a change as low gives it less intake
+  scrutiny; commit gates still review it. Kept only if cost per turn falls and
+  fixture detection and the misfire counts do not regress.

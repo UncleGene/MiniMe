@@ -146,36 +146,11 @@ Apply while writing the code, not only at review:
 
 ### Post-implementation
 
-Run these gates in sequence without pausing between passing steps:
-
-1. Run the full test suite — all tests must pass before proceeding.
-2. Read the minime-code-simplifier skill file and follow its procedure —
-   mandatory; simplify before review so the reviewer sees clean code.
-3. Invoke `minime-code-reviewer` through the host's skill mechanism, or read
-   its skill file and follow its procedure if the host has none —
-   mandatory; fix all blocking issues before proceeding to commit.
-4. Route to `minime-project-commit` to shape the commit.
-
-Do not delegate to minime-decision-prompt between these steps. A prompt that
-asks whether to commit or run simplification/review turns mandatory gates into
-optional choices. If the implementation is complete and uncommitted changes
-exist, continue through the full gate sequence and commit shaping in the same
-turn until a gate blocks or `minime-project-commit` produces the post-commit
-continuation prompt.
-
-### Continuation menu
-
-Only use a continuation menu when there is a genuine user-facing choice that
-is not already dictated by the post-implementation gate sequence. Do not offer
-separate "commit", "simplify", or "review" options after implementation; the
-correct next action is the mandatory gate chain above.
-
-Valid continuation choices are limited to unresolved scope or product
-questions before implementation, such as:
-
-- **Revise this slice** — restate the slice with adjusted scope or criteria.
-- **Choose between unresolved product options** — delegate to
-  `minime-decision-prompt` with the blocking choice.
+Route the finished slice to `minime-project-commit`, which owns the gate chain
+and its tiers; follow it through to the commit in the same turn. Mandatory
+gates are not user choices: never ask whether to commit, simplify or review.
+After implementation, delegate to `minime-decision-prompt` only for an
+unresolved scope or product question, such as revising the slice.
 
 ## Interaction rules
 

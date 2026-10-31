@@ -14,11 +14,29 @@ Evaluate an incoming feature request or course correction before
 implementation, then route it to the right documentation or code path. This is
 the intake gate that stops requests being taken at face value: do not jump to
 code even when the target file looks obvious. A request that looks like a
-one-line fix still passes intake — the point is to catch the request that
-quietly breaks an assumption, ripples wider than it appears, or adds little
-value, before any code is written.
+one-line fix still passes intake, scaled to its risk tier — the point is to
+catch the request that quietly breaks an assumption, ripples wider than it
+appears, or adds little value, before any code is written.
 
-## Intake checks (run before classifying)
+## Risk tier (pick first)
+
+Pick the tier from what the change touches, not from its size. When in doubt,
+pick the higher tier.
+
+- **Low:** reversible and local; contradicts no accepted requirement, decision
+  or invariant, and changes no requirement, decision, acceptance, safety,
+  security, data-format or public-interface text or behavior. State one line,
+  `Intake: low — contradicts nothing accepted; <why>; improvement:
+  <classification>`, and proceed; skip the category list and the output below.
+- **Standard:** neither low nor high. State each intake check below in a
+  sentence, then route to the owning skill.
+- **High:** changes a requirement, decision, safety or security rule, data
+  format or public interface, or is hard to reverse. Run the full procedure and
+  output, and hand off to `minime-impact-analyzer`.
+
+Commit gate tiers (light or full) are chosen separately and are unchanged.
+
+## Intake checks (standard and high tiers)
 
 1. **Assumption check** — does the request contradict an accepted requirement,
    decision, or key invariant? If yes, flag the conflict and resolve it in docs

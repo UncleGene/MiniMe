@@ -59,7 +59,7 @@ scripts/minime host-registration-audit --skills-root /path/to/host/skills --json
 
 Behavior:
 
-- Defaults to the first existing surface from `ALL_SURFACE_ROOTS`
+- Defaults to the first existing skills root in the host table
   (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
   `~/.copilot/skills`).
 - Use `--skills-root` to audit a specific surface.

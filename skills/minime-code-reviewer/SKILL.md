@@ -89,8 +89,7 @@ touched paths, and apply each matching profile from `references/`.
 - Next action
 
 If this review is running inside a mandatory gate chain such as
-`minime-project-commit`, `minime-self-commit`, or the post-implementation flow
-owned by `minime-implementation-step-selector`, do not stop for a decision
+`minime-project-commit` or `minime-self-commit`, do not stop for a decision
 prompt after `Verdict: pass`. Return control to the calling skill so it can
 continue the required next gate or commit action in the same turn. Mandatory
 gates are not user choices.

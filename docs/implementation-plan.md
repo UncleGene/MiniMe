@@ -17,6 +17,9 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
 - In Claude Code, `minime-code-reviewer` and `minime-doc-check` (the diff audit
   that `minime-doc-sync` calls) run in forked subagents on Sonnet 5.5
   (Decision 14); other hosts run them inline on the session model.
+- One host-capability table (`HOSTS` in `scripts/minime`) drives install,
+  audits, `review-eval` and hooks; a test adds a hypothetical host through it
+  alone (REQ-011).
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
 - `transcript-audit` reports skill loads, tokens and their list-price cost
@@ -98,10 +101,8 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks; next, measure its cost (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
-| Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Cost and detection measurements do not regress. |
-| Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
-| Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). Merge findings by issue, rank ones both hosts raise highest, and dismiss ones with no traceable caller path or that only prefer another approach. | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |
+| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks, on probation until its cost is measured; next, measure it (REQ-010, Decision 14). Every routing change, including a cheaper model or effort level, needs a feasibility and benefit check first: what it saves, measured, against the detection it risks (Decision 15). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
+| Scale ceremony to risk | Implemented: intake and questions scale with one risk scale, `minime-decision-prompt` explains new mechanisms and costs before the options (Decision 16), and `minime-implementation-step-selector` delegates the gate chain to `minime-project-commit` instead of restating it (REQ-010). Next, measure. | Cost and detection measurements do not regress. |
 | More stack profiles (lower priority) | Profiles and fixtures for Ruby, Rails, TypeScript/JavaScript, React and Vitest (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
 
 ## Temporary instrumentation

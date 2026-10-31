@@ -142,9 +142,10 @@ verification. Escalate or fix pre-existing failures; do not commit over
 them.**
 
 **Before implementing any feature addition or behavior change, run a recorded
-intake evaluation — do not take the request at face value.** No feature-add or
-correction proceeds to code until it passes three checks, stated in the
-response:
+intake evaluation — do not take the request at face value.** Scale it to the
+change's risk tier, defined in `minime-course-correction-triage` (Decision 16):
+a low-risk change states one intake line; a standard one passes the three
+checks below, stated in the response; a high-risk one runs the full triage.
 
 - **Assumption check** — does the request contradict an accepted requirement,
   decision, or key invariant? If so, stop and route through
@@ -157,9 +158,10 @@ response:
   no-op would serve, challenge the request before writing code.
 
 This rule overrides any "the target is clear, route directly" shortcut. A
-request that looks like a one-line fix still passes intake. The intake gate is
-`minime-course-correction-triage`; route both feature requests and corrections
-through it when any check is non-trivial.
+request that looks like a one-line fix still passes intake at its tier. The
+intake gate is `minime-course-correction-triage`; route both feature requests
+and corrections through it at their tier, and through the full triage when any
+check is non-trivial.
 
 - Ask a concise clarifying question when any required input, scope boundary,
   artifact authority, or next-step choice is unclear. Ask one question per
@@ -170,15 +172,19 @@ through it when any check is non-trivial.
   `minime-decision-prompt` shape — named options, each with pros, cons, and
   stated impact — never raw prose.** This holds for any question whose answer
   would change an artifact, implementation, validation, or handoff, regardless
-  of which skill is running or whether a listed ambiguity trigger fired.
+  of which skill is running or whether a listed ambiguity trigger fired, except
+  the low-tier stated default below.
   Before asking, read `minime-decision-prompt` and follow its procedure, then
   render the result per the structured-choice rule below. Reject these shapes:
   a bare open question ("How would you like me to handle X?"), a yes/no with
   no stated consequence, and a prose paragraph that buries the choice in
   narrative. Only a question with no material consequence — a factual lookup
-  the agent cannot resolve from the repo — may be asked as plain prose.
+  the agent cannot resolve from the repo — may be asked as plain prose. In the
+  low risk tier, a reversible choice with a conventional default is stated, not
+  asked.
 - Do not silently choose between materially different interpretations when the
-  answer would change the artifact, implementation, validation, or handoff.
+  answer would change the artifact, implementation, validation, or handoff; a
+  stated low-tier default is not silent.
 - Examine every user input and user-identified problem for an opportunity to
   improve MiniMe's project guidance, requirements, implementation, tests, or
   reusable skills. Route actionable opportunities through the appropriate

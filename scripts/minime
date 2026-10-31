@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 
 SCHEMA_VERSION = "1"
@@ -348,48 +348,90 @@ def _target_reusable_skills(root: Path) -> tuple[list[dict], list[dict]]:
     return target, blocked
 
 
-# Known non-overlapping agent surfaces.
-# Installation is universal across these roots: every surface that exists
-# receives wrapper dirs. Do not include roots that Codex scans in addition to
-# ~/.codex/skills, or Codex will expose duplicate skill names.
-# SKILL.md inside each wrapper is a regular installed file. Codex currently
-# ignores symlinked user skills, so host registration cannot rely on symlinks.
+# Host-capability table (REQ-011, Decision 14): every difference between hosts
+# that the installer, audits and eval read. Adding a host is one entry here; a
+# missing field means MiniMe uses no such capability on that host.
 #
-# ~/.codex/skills                 — Codex CLI          (also needs agents/openai.yaml)
-# ~/.claude/skills                — Claude Code + OpenCode
-# ~/.config/opencode/skills       — OpenCode           (redundant if ~/.claude/skills exists)
-# ~/.copilot/skills               — GitHub Copilot
-#
-# ~/.agents/skills is intentionally excluded. Current Codex scans both
-# ~/.codex/skills and ~/.agents/skills, so installing MiniMe into both makes
-# every MiniMe skill appear twice.
-ALL_SURFACE_ROOTS: list[str] = [
-    "~/.codex/skills",
-    "~/.claude/skills",
-    "~/.config/opencode/skills",
-    "~/.copilot/skills",
-]
+# skills_root: where skills install. Roots must not overlap: Codex also scans
+#   ~/.agents/skills, so installing there as well would show every skill twice,
+#   and ~/.claude/skills also serves OpenCode. Codex ignores symlinked user
+#   skills and needs agents/openai.yaml, so every root gets regular files and
+#   the yaml.
+# transcripts: local session logs that transcript-audit reads.
+# choice_ui: the tool the host's structured-choice UI is called through.
+# fork: how a `minime_context: fresh` skill runs as a forked subagent: the
+#   frontmatter added on install and the model per tier, which follows the
+#   review-eval baseline in docs/implementation-plan.md (Decision 14).
+# headless: one read-only run for review-eval. `argv` follows the executable
+#   `bin`; its {prompt}, {reply}, {model} and {effort} slots expand to the
+#   prompt, the reply file and the `model` and `effort` argv, which are left
+#   out when unset. `mention` is how a prompt names a skill.
+# hooks: where the agent commit gate goes, and its events (Decision 13).
+class HostSpec(TypedDict, total=False):
+    name: str
+    skills_root: str
+    transcripts: str
+    choice_ui: str
+    fork: dict[str, Any]
+    headless: dict[str, Any]
+    hooks: dict[str, Any]
 
 
-# Decision 14: Claude Code runs a skill whose metadata declares
-# `minime_context: fresh` in a forked subagent on its tier's model, and waits
-# for the result. Other hosts install the source unchanged. Tier models follow
-# the review-eval baseline in docs/implementation-plan.md.
-CLAUDE_SKILLS_SUFFIX = "/.claude/skills"
-CLAUDE_TIER_MODELS = {"fast": "sonnet", "reasoning": "inherit"}
+HOSTS: dict[str, HostSpec] = {
+    "codex": {
+        "name": "Codex",
+        "skills_root": "~/.codex/skills",
+        "transcripts": "~/.codex/sessions",
+        "headless": {"bin": "codex", "mention": " (${})",
+                     "argv": ["exec", "-s", "read-only", "--skip-git-repo-check", "--ephemeral",
+                              "-o", "{reply}", "{model}", "{effort}", "{prompt}"],
+                     "model": ["-m", "{}"], "effort": ["-c", "model_reasoning_effort={}"]},
+        "hooks": {"dir": "~/.config/minime/codex-hooks", "settings": "~/.codex/hooks.json",
+                  "events": {"PreToolUse": "Bash"}},
+    },
+    "claude": {
+        "name": "Claude Code",
+        "skills_root": "~/.claude/skills",
+        "transcripts": "~/.claude/projects",
+        "choice_ui": "AskUserQuestion",
+        "fork": {"frontmatter": "context: fork\nbackground: false\nmodel: {}\n",
+                 "models": {"fast": "sonnet", "reasoning": "inherit"}},
+        "headless": {"bin": "claude", "mention": "",
+                     "argv": ["-p", "{prompt}", "{model}", "{effort}", "--allowedTools", "Read", "Grep",
+                              "Glob", "Skill", "Bash(git diff:*)", "Bash(git status:*)"],
+                     "model": ["--model", "{}"], "effort": ["--effort", "{}"]},
+        "hooks": {"dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json",
+                  "events": {"PreToolUse": "Bash", "Stop": None}},
+    },
+    "opencode": {"name": "OpenCode", "skills_root": "~/.config/opencode/skills"},
+    "copilot": {"name": "GitHub Copilot", "skills_root": "~/.copilot/skills"},
+}
+
+
+def _surface_roots() -> list[str]:
+    return [spec["skills_root"] for spec in HOSTS.values()]
+
+
+def _host_for_root(surface_root: Path) -> HostSpec:
+    """The table entry whose skills root this path is, matched by its suffix so
+    a root under another home directory still maps to its host."""
+    path = surface_root.expanduser().as_posix()
+    return next((spec for spec in HOSTS.values()
+                 if path.endswith(spec["skills_root"].removeprefix("~"))), HostSpec())
 
 
 def _installed_skill_text(source_skill_md: Path, surface_root: Path) -> str:
     """Return the SKILL.md text a host root should hold for a source skill."""
     text = source_skill_md.read_text(encoding="utf-8")
-    if not surface_root.expanduser().as_posix().endswith(CLAUDE_SKILLS_SUFFIX):
+    fork = _host_for_root(surface_root).get("fork")
+    if not fork:
         return text
     metadata = parse_skill_frontmatter(source_skill_md)["metadata"]
     if metadata.get("minime_context") != "fresh":
         return text
-    model = CLAUDE_TIER_MODELS.get(metadata.get("model_tier", ""), "inherit")
+    model = fork["models"].get(metadata.get("model_tier", ""), "inherit")
     end = text.index("\n---", 3) + 1
-    return text[:end] + f"context: fork\nbackground: false\nmodel: {model}\n" + text[end:]
+    return text[:end] + fork["frontmatter"].format(model) + text[end:]
 
 
 def _openai_yaml_content(name: str, description: str) -> str:
@@ -1040,9 +1082,9 @@ def command_host_registration_audit(args: argparse.Namespace) -> int:
     if args.skills_root:
         host_skills_root = Path(args.skills_root)
     else:
-        # No primary surface — use the first existing surface from ALL_SURFACE_ROOTS.
-        existing = [Path(r).expanduser() for r in ALL_SURFACE_ROOTS if Path(r).expanduser().is_dir()]
-        host_skills_root = existing[0] if existing else Path("~/.codex/skills").expanduser()
+        # No primary surface — use the first existing surface from the host table.
+        roots = [Path(r).expanduser() for r in _surface_roots()]
+        host_skills_root = next((r for r in roots if r.is_dir()), roots[0])
     output = _host_registration_audit(host_skills_root, root)
 
     if getattr(args, "json", False):
@@ -1256,7 +1298,7 @@ def command_skills_install(args: argparse.Namespace) -> int:
     else:
         surface_roots = [
             Path(r).expanduser()
-            for r in ALL_SURFACE_ROOTS
+            for r in _surface_roots()
             if Path(r).expanduser().is_dir()
         ]
         if not surface_roots:
@@ -1265,7 +1307,7 @@ def command_skills_install(args: argparse.Namespace) -> int:
                 "No known agent skill surfaces found.",
                 (
                     "Create at least one surface directory before installing, for example:\n"
-                    "  mkdir -p ~/.codex/skills ~/.claude/skills ~/.copilot/skills\n"
+                    f"  mkdir -p {' '.join(_surface_roots())}\n"
                     "then retry."
                 ),
             )
@@ -1379,7 +1421,6 @@ def command_skills_install(args: argparse.Namespace) -> int:
 # Transcript audit (Decision 10): on-demand, read-only scan of local host
 # transcripts for MiniMe skill use and observable contract misfires. Reports
 # use placeholders only: no paths, project names or message text.
-TRANSCRIPT_ROOTS = {"claude": "~/.claude/projects", "codex": "~/.codex/sessions"}
 SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
 SLASH_SKILL_RE = re.compile(rf"<command-name>/?({SKILL_NAME})</command-name>")
 INJECTED_SKILL_RE = re.compile(rf"<skill>\s*<name>({SKILL_NAME})</name>")
@@ -1537,7 +1578,7 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
                         turn["skills"].add(data["skill"])
                     elif name == "Read":
                         turn["skills"].update(SKILL_FILE_RE.findall(str(data.get("file_path", ""))))
-                    elif name == "AskUserQuestion":
+                    elif name == HOSTS["claude"]["choice_ui"]:
                         turn["asked_with_ui"] = True
                     elif name == "Bash":
                         command = str(data.get("command", ""))
@@ -1612,7 +1653,7 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
             turn["final"] = payload.get("last_agent_message") or ""
             if BLOCKING_VERDICT_RE.search(turn["final"]):
                 turn["blocking_review"] = True
-            turn["asked_with_ui"] = True  # Codex has no choice UI to check against.
+            turn["asked_with_ui"] = "choice_ui" not in HOSTS["codex"]  # nothing to check against
     return session
 
 
@@ -1659,8 +1700,10 @@ def _attach_subagent_turns(sessions: list[dict]) -> None:
                 turn["attached"] = True
 
 
+TRANSCRIPT_PARSERS = {"claude": _parse_claude_transcript, "codex": _parse_codex_transcript}
+
+
 def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
-    parsers = {"claude": _parse_claude_transcript, "codex": _parse_codex_transcript}
     projects: dict[str, str] = {}
     hosts, findings = {}, []
     skill_loads: dict[str, int] = {}
@@ -1673,7 +1716,7 @@ def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
                                             "subagent": dict.fromkeys(USAGE_FIELDS, 0)},
                                  "gated_commits": {"turns": 0, "usage": {}},
                                  "gate_blocks": {"slop_scan": 0, "review": 0}, "unpriced_models": []}
-        parsed = [parsers[host](path) for path in sorted(root.rglob("*.jsonl"))] if root.is_dir() else []
+        parsed = [TRANSCRIPT_PARSERS[host](path) for path in sorted(root.rglob("*.jsonl"))] if root.is_dir() else []
         # review-eval runs, and the subagents they fork, are not real work.
         eval_ids = {s["parent"] or s["id"] for s in parsed if s["eval"]}
         sessions = []
@@ -1742,8 +1785,8 @@ def _transcript_audit(roots: dict[str, Path], since: str) -> dict:
 
 
 def command_transcript_audit(args: argparse.Namespace) -> int:
-    roots = {host: Path(getattr(args, f"{host}_root") or default).expanduser()
-             for host, default in TRANSCRIPT_ROOTS.items()}
+    roots = {host: Path(getattr(args, f"{host}_root") or HOSTS[host]["transcripts"]).expanduser()
+             for host in TRANSCRIPT_PARSERS}
     # Transcript timestamps are UTC strings; compare against UTC, not the offset given.
     since = args.since or ""
     try:
@@ -1818,16 +1861,12 @@ LINE_TOLERANCE = 3
 
 def _review_command(host: str, binary: str, skill: str, model: str, effort: str,
                     reply_file: Path) -> list[str]:
-    if host == "claude":
-        prompt = REVIEW_PROMPT.format(skill=skill, mention="")
-        return [binary, "-p", prompt,
-                *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
-                "--allowedTools", "Read", "Grep", "Glob", "Skill", "Bash(git diff:*)", "Bash(git status:*)"]
-    prompt = REVIEW_PROMPT.format(skill=skill, mention=f" ($minime-{skill})")
-    return [binary, "exec", "-s", "read-only", "--skip-git-repo-check", "--ephemeral",
-            "-o", str(reply_file),
-            *(["-m", model] if model else []),
-            *(["-c", f"model_reasoning_effort={effort}"] if effort else []), prompt]
+    spec = HOSTS[host]["headless"]
+    prompt = REVIEW_PROMPT.format(skill=skill, mention=spec["mention"].format(f"minime-{skill}"))
+    slots = {"{prompt}": [prompt], "{reply}": [str(reply_file)],
+             "{model}": [arg.format(model) for arg in spec["model"]] if model else [],
+             "{effort}": [arg.format(effort) for arg in spec["effort"]] if effort else []}
+    return [binary, *(part for arg in spec["argv"] for part in slots.get(arg, [arg]))]
 
 
 def _review_fixtures(root: Path, layers: list[str], tier: str) -> list[dict]:
@@ -1939,7 +1978,8 @@ def _run_review_fixture(fixture: dict, host: str, binary: str, skill: str, model
 def command_review_eval(args: argparse.Namespace) -> int:
     root = Path(args.fixtures).expanduser() if args.fixtures else repo_root() / EVAL_SKILLS[args.skill]
     fixtures = _review_fixtures(root, args.layer or [], args.tier or "")
-    binary = args.host_bin or shutil.which(args.host) or args.host
+    bin_name = HOSTS[args.host]["headless"]["bin"]
+    binary = args.host_bin or shutil.which(bin_name) or bin_name
     if not args.run:
         print(f"MiniMe review eval: dry run of {args.skill} for {args.host} ({len(fixtures)} fixtures)")
         for fixture in fixtures:
@@ -2058,13 +2098,10 @@ def command_git_hook(args: argparse.Namespace) -> int:
 # commit skill loaded in the turn. In Claude Code the same script is a Stop hook
 # that keeps a MiniMe turn from ending without a next action. Claude Code and
 # Codex share the hooks JSON shape; each host gets its own script copy, and only
-# its own entries are touched. Each event maps to its tool matcher, if any.
-AGENT_HOOKS: dict[str, dict[str, Any]] = {
-    "claude": {"name": "Claude Code", "dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json",
-               "events": {"PreToolUse": "Bash", "Stop": None}},
-    "codex": {"name": "Codex", "dir": "~/.config/minime/codex-hooks", "settings": "~/.codex/hooks.json",
-              "events": {"PreToolUse": "Bash"}},
-}
+# its own entries are touched. Each event maps to its tool matcher, if any; the
+# hosts and their settings come from the host table.
+def _agent_hooks() -> dict[str, dict[str, Any]]:
+    return {host: {"name": spec["name"], **spec["hooks"]} for host, spec in HOSTS.items() if "hooks" in spec}
 
 
 def _load_hook_settings(path: Path) -> dict:
@@ -2083,7 +2120,7 @@ def _load_hook_settings(path: Path) -> dict:
 
 
 def command_agent_hook(args: argparse.Namespace) -> int:
-    host = AGENT_HOOKS[args.host]
+    host = _agent_hooks()[args.host]
     script = Path(host["dir"]).expanduser() / "commit-gate"
     settings_path = Path(host["settings"]).expanduser()
     if script.is_symlink() or (script.exists() and not script.is_file()):
@@ -2164,7 +2201,7 @@ def build_parser() -> argparse.ArgumentParser:
         "host-registration-audit", help="audit host/user-level MiniMe skill registration"
     )
     host_audit.add_argument("--skills-root", default=None,
-                            help="host skills directory to audit (default: first existing surface from ALL_SURFACE_ROOTS)")
+                            help="host skills directory to audit (default: first existing skills root in the host table)")
     host_audit.add_argument("--json", action="store_true")
     host_audit.set_defaults(func=command_host_registration_audit)
 
@@ -2172,15 +2209,17 @@ def build_parser() -> argparse.ArgumentParser:
         "transcript-audit",
         help="read-only scan of local host transcripts for MiniMe skill misfires",
     )
-    transcripts.add_argument("--claude-root", help="Claude Code transcripts (default ~/.claude/projects)")
-    transcripts.add_argument("--codex-root", help="Codex sessions (default ~/.codex/sessions)")
+    for host in TRANSCRIPT_PARSERS:
+        transcripts.add_argument(f"--{host}-root",
+                                 help=f"{HOSTS[host]['name']} transcripts (default {HOSTS[host]['transcripts']})")
     transcripts.add_argument("--since", help="only turns at or after this ISO date, e.g. 2026-10-07")
     transcripts.add_argument("--json", action="store_true")
     transcripts.set_defaults(func=command_transcript_audit)
 
     review_eval = sub.add_parser("review-eval",
                                  help="score headless reviews on planted-defect fixtures (Decision 9)")
-    review_eval.add_argument("--host", choices=["claude", "codex"], required=True)
+    review_eval.add_argument("--host", choices=[h for h, spec in HOSTS.items() if "headless" in spec],
+                             required=True)
     review_eval.add_argument("--skill", choices=sorted(EVAL_SKILLS), default="code-reviewer",
                              help="skill to score (default code-reviewer)")
     review_eval.add_argument("--run", action="store_true",
@@ -2202,7 +2241,7 @@ def build_parser() -> argparse.ArgumentParser:
     git_hook.add_argument("action", choices=["install", "uninstall"])
     git_hook.add_argument("--write", action="store_true", help="apply; without it, dry run")
     git_hook.set_defaults(func=command_git_hook)
-    for host, spec in AGENT_HOOKS.items():
+    for host, spec in _agent_hooks().items():
         agent_hook = sub.add_parser(f"{host}-hook",
                                     help=f"install or remove the user-level {spec['name']} commit gate")
         agent_hook.add_argument("action", choices=["install", "uninstall"])
@@ -2247,8 +2286,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--skills-root",
         help=(
             "install to this single surface root only "
-            "(default: all existing surfaces from ~/.codex/skills, ~/.claude/skills, "
-            "~/.config/opencode/skills, ~/.copilot/skills)"
+            f"(default: all existing skills roots in the host table: {', '.join(_surface_roots())})"
         ),
     )
     skills_host_install.add_argument("--write", action="store_true",

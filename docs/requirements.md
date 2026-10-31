@@ -195,7 +195,8 @@ Links: Decisions 8/10; REQ-001/003/006.
 
 Status: active; token measurement, including per-model usage of each gated
 commit turn and its subagents, and list-price cost implemented; Claude Code
-review and doc check run forked on the fast tier; other routing pending.
+review and doc check run forked on the fast tier; intake and questions scale with
+one risk scale (Decision 16); other routing pending.
 Type: core. Priority: high.
 
 Skills run each step at the lowest-cost model, effort level and context that
@@ -213,11 +214,11 @@ adapter (Decision 14). A routing change is accepted only if the priced cost per
 gated change, main context plus the subagents it starts, falls and fixture
 detection holds.
 
-Links: Decisions 1/9/10/14; REQ-003/007/009; TranscriptAuditCLITests.
+Links: Decisions 1/9/10/14/16; REQ-003/007/009; TranscriptAuditCLITests.
 
 ## REQ-011 — Host adoptability
 
-Status: active; not yet implemented. Type: core. Priority: medium.
+Status: active; implemented (`HOSTS` in `scripts/minime`). Type: core. Priority: medium.
 
 Host differences are recorded in one host-capability table. The table gives
 each host's skills root, transcript location, choice UI, subagent, model and
@@ -229,19 +230,3 @@ existing roots still pass the registration audit;
 `test_no_skill_uses_host_specific_call_syntax` passes.
 
 Links: Decisions 4/14; REQ-004.
-
-## REQ-012 — Cross-agent second opinion
-
-Status: active; not yet implemented. Type: AI. Priority: medium.
-
-Code review and decision challenges can get a second opinion from the other
-verified host. It triggers by risk tier and spare quota and runs read-only. If
-the other host is unavailable or out of quota, it falls back to a fresh instance
-of the same host, or skips and reports the skip. A project can opt out of
-sending code to a second provider.
-
-Acceptance: on the fixtures, the second opinion raises the detection rate at a
-token cost the user accepts. A test with an unavailable host shows the fallback
-running. With neither host available, the flow completes and reports the skip.
-
-Links: Decisions 9/14/15; REQ-003/010/011.

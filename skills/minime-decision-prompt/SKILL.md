@@ -11,7 +11,9 @@ metadata:
 
 
 Use when the agent would otherwise pick silently between materially
-different paths. Do not resolve the question — stop and wait.
+different paths. Do not resolve the question — stop and wait. The one
+exception is a low-tier reversible choice with a conventional default (see
+Rules), which is stated instead of asked.
 
 ## Ambiguity triggers
 
@@ -30,6 +32,9 @@ different paths. Do not resolve the question — stop and wait.
 
 ## Required output shape
 
+- **Context first:** before the question, explain in plain terms any mechanism,
+  cost or term the options depend on that the user has not seen this session;
+  say whether a cost is one-time or recurring and where it falls.
 - **Question:** one sentence.
 - **Why it matters:** reversibility, blast radius, what gets locked in.
 - **Options:** minimum two, each with:
@@ -39,6 +44,9 @@ different paths. Do not resolve the question — stop and wait.
 
 ## Rules
 
+- When a choice is low risk by the definition in
+  `minime-course-correction-triage`, reversible and has a conventional default,
+  state the default and proceed instead of asking.
 - One question per turn. If multiple ambiguities exist, rank them by
   blocking priority — which one would halt implementation if left unresolved?
   Present the highest-priority question first. After the user answers, check
