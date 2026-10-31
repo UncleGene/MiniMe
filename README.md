@@ -31,7 +31,9 @@ or GitHub Copilot can use it. Your projects stay free of MiniMe files.
     focused tests, blanket lint/type suppressions and debugger calls in staged
     code, then runs the repository's own pre-commit hook;
   - an agent commit gate for Claude Code and Codex that blocks an agent's
-    `git commit` until the commit procedure is loaded in that turn.
+    `git commit` until the commit procedure is loaded in that turn; in
+    Claude Code it also keeps a MiniMe turn from ending without a
+    recommended next action.
 - **Audits**: check host registration, confirm a project carries no MiniMe
   trace, and scan your local agent transcripts for skill misfires and token
   cost. Nothing is collected or sent anywhere.

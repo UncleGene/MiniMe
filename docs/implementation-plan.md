@@ -60,12 +60,25 @@ host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Measure the forked reviewer: compare Claude Code's list-priced `gated_commits`
-cost per turn, main context plus subagents, before and after it (the full
-window minus a `--since` run from the fork). Wait until about ten gated commit
-turns across at least three target projects follow the fork; on 2026-10-17
-there were too few. If cost falls and misfire and gate-block counts hold, move
-verification to a fresh context the same way; otherwise revisit the fork.
+Reinstall the Claude Code hooks (`scripts/minime claude-hook install --write`)
+and check that `no-next-action` misfires fall in later transcript audits. They
+rose from 3 in the 31 MiniMe turns before the reviewer fork to 20 in the 37
+after it: 12 were progress updates while background work ran and 8 were
+late-session turns that ended on a summary. Both break the contract, and the
+fork does not touch the main turn's final text. The commit gate is now also a
+`Stop` hook that blocks a MiniMe turn ending without the line (Decision 13).
+
+The forked reviewer was measured on 2026-10-20 (Claude Code, list price, main
+context plus subagents, MiniMe counted as a target project). Before the fork,
+15 gated commit turns in three projects cost a median $1.52 (mean $2.51); after
+it, 28 turns in four projects cost a median $3.28 (mean $6.14). Turns whose
+review passed stayed flat at a median $1.50. The rise sits in the 17 turns with
+a blocking review (median $5.18), as fix work and re-review; the reviewer
+subagent averaged $0.28 per turn. Of 31 blocking verdicts since the fork, 27
+held real defects, 4 were borderline and none was noise. The fork stays,
+because its blocks are real defects and quality ranks above cost (Decision 1).
+Verification does not move to a fresh context, because the fork showed no
+saving to copy.
 
 ## Open milestones
 
@@ -74,11 +87,23 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Claude Code review already forks on the fast tier. Measure its cost effect; run verification in a fresh fast-tier context if that costs less; re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
+| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above); re-derive each skill's tier (REQ-010, Decision 14). | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise. |
 | Scale ceremony to risk | Tier intake and question handling by risk; in `minime-decision-prompt`, explain any new mechanism or cost before showing the options; drop repeated chain text where a gate is delegated (REQ-010). | Cost and detection measurements do not regress. |
 | Host-capability table | One table gives each host's root, transcripts, choice UI, subagent, model and effort mechanism, headless command, read-only flags and hooks; the installer and audits read it (REQ-011). | A hypothetical host is added through the table alone in a test; all four roots still pass the audit. |
-| Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |
+| Cross-agent second opinion | An optional second opinion from the other verified host, triggered by risk and spare quota, with a same-host or skip fallback (REQ-012, Decision 15). Merge findings by issue, rank ones both hosts raise highest, and dismiss ones with no traceable caller path or that only prefer another approach. | On the fixtures, detection rises at an accepted cost; a test shows the fallback when the host is unavailable. |
 | More stack profiles (lower priority) | Profiles and fixtures for Ruby, Rails, TypeScript/JavaScript, React and Vitest (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
+
+## Temporary instrumentation
+
+These `transcript-audit` outputs gather evidence for open milestones and are
+removed, with their tests and docs, when the condition holds. The agent hooks,
+`review-eval` and the misfire findings are lasting functionality and stay.
+
+| Output | Serves | Remove when |
+|---|---|---|
+| Cost per gated commit turn, main context plus subagents | Model and effort routing | That milestone is accepted |
+| Slop-scan and blocking-review gate-block counts | Judging the reviewer fork by its blocks | Model and effort routing is accepted |
+| Tokens and list-price cost per skill and per model/effort | Model and effort routing; Scale ceremony to risk | Both milestones are accepted |
 
 ## Plan maintenance
 

@@ -1380,7 +1380,8 @@ class AgentHookCLITests(unittest.TestCase):
             settings = home / relative
             settings.parent.mkdir()
             other = {"matcher": "Bash", "hooks": [{"type": "command", "command": "/bin/true"}]}
-            original = {"model": "x", "hooks": {"PreToolUse": [other]}}
+            other_stop = {"hooks": [{"type": "command", "command": "/bin/true"}]}
+            original = {"model": "x", "hooks": {"PreToolUse": [other], "Stop": [other_stop]}}
             settings.write_text(json.dumps(original))
             self.assertEqual(self._minime(home, host, "install").returncode, 0)
             self.assertEqual(json.loads(settings.read_text()), original, "dry run must not write")
@@ -1391,22 +1392,38 @@ class AgentHookCLITests(unittest.TestCase):
             self.assertTrue(os.access(gate, os.X_OK))
             installed = json.loads(settings.read_text())
             self.assertEqual(installed["model"], "x")
-            self.assertEqual(installed["hooks"]["PreToolUse"], [
-                other, {"matcher": "Bash", "hooks": [{"type": "command", "command": str(gate)}]}])
+            ours = [{"type": "command", "command": str(gate)}]
+            self.assertEqual(installed["hooks"]["PreToolUse"], [other, {"matcher": "Bash", "hooks": ours}])
+            self.assertEqual(installed["hooks"]["Stop"],
+                             [other_stop, {"hooks": ours}] if host == "claude" else [other_stop])
             result = self._minime(home, host, "uninstall", "--write")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(settings.read_text()), original)
             self.assertFalse(gate.parent.exists())
 
-    def test_refuses_unreadable_settings(self):
+    def test_reinstall_adds_the_stop_hook_to_an_earlier_install(self):
         with tempfile.TemporaryDirectory() as d:
-            settings = Path(d) / ".claude" / "settings.json"
+            home = Path(d)
+            settings = home / ".claude" / "settings.json"
             settings.parent.mkdir()
-            settings.write_text("{not json")
-            result = self._minime(Path(d), "claude", "install", "--write")
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("MINIME_E_HOOK_SETTINGS_UNREADABLE", result.stdout + result.stderr)
-            self.assertEqual(settings.read_text(), "{not json")
+            gate = home / ".config" / "minime" / "claude-hooks" / "commit-gate"
+            ours = [{"type": "command", "command": str(gate)}]
+            settings.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": ours}]}}))
+            result = self._minime(home, "claude", "install", "--write")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(settings.read_text())["hooks"], {
+                "PreToolUse": [{"matcher": "Bash", "hooks": ours}], "Stop": [{"hooks": ours}]})
+
+    def test_refuses_unreadable_settings(self):
+        for content in ("{not json", '{"hooks": {"Stop": {}}}'):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
+                settings = Path(d) / ".claude" / "settings.json"
+                settings.parent.mkdir()
+                settings.write_text(content)
+                result = self._minime(Path(d), "claude", "install", "--write")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("MINIME_E_HOOK_SETTINGS_UNREADABLE", result.stdout + result.stderr)
+                self.assertEqual(settings.read_text(), content)
 
     def _gate(self, directory: Path, records: list[dict], command: str) -> subprocess.CompletedProcess:
         transcript = directory / "t.jsonl"
@@ -1414,6 +1431,40 @@ class AgentHookCLITests(unittest.TestCase):
         event = {"tool_name": "Bash", "tool_input": {"command": command}, "transcript_path": str(transcript)}
         return subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
                               capture_output=True, text=True)
+
+    def test_stop_gate_requires_a_next_action_after_a_minime_turn(self):
+        def user(text):
+            return {"type": "user", "message": {"role": "user", "content": text}}
+
+        def reply(text, sidechain=False):
+            return {"type": "assistant", "isSidechain": sidechain,
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+        skill = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime-project-commit"}}]}}
+        done = "Committed.\n\nRecommended next action: run the audit."
+        cases = [
+            ("no MiniMe skill in the turn", [user("go"), reply("Done.")], False, 0),
+            ("skill only in an earlier turn", [user("go"), skill, reply(done), user("thanks"), reply("Sure.")],
+             False, 0),
+            ("turn ends with a next action", [user("go"), skill, reply(done)], False, 0),
+            ("turn ends without one", [user("go"), skill, reply(done), reply("Tests pass; not pushed.")], False, 2),
+            ("only a subagent wrote it", [user("go"), skill, reply("Summary."), reply(done, sidechain=True)],
+             False, 2),
+            ("already continuing from this hook", [user("go"), skill, reply("Summary.")], True, 0),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            transcript = Path(d) / "t.jsonl"
+            for name, records, active, code in cases:
+                with self.subTest(name):
+                    transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+                    event = {"hook_event_name": "Stop", "stop_hook_active": active,
+                             "transcript_path": str(transcript)}
+                    result = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    if code:
+                        self.assertIn("Recommended next action:", result.stderr)
 
     def test_gate_reads_codex_transcripts(self):
         def task():
@@ -1756,7 +1807,8 @@ class DocumentationConsistencyTests(unittest.TestCase):
         "minime-code-reviewer": ["minime-decision-prompt", "minime-project-commit"],
         "minime-project-commit": ["minime-doc-sync", "minime-scope-boundary",
                                   "minime-code-simplifier", "minime-code-reviewer"],
-        "minime-project-orient": ["minime-decision-prompt", "minime-project-inception"],
+        "minime-project-orient": ["minime-decision-prompt", "minime-project-inception",
+                                  "minime-project-milestone"],
         "minime-project-inception": ["minime-decision-prompt", "minime-requirements-manager",
                                      "minime-project-milestone", "minime-phase-quality-guard"],
         "minime-replan": ["minime-decision-prompt", "minime-project-milestone",
@@ -1778,6 +1830,27 @@ class DocumentationConsistencyTests(unittest.TestCase):
             referenced = set(self.SKILL_REFERENCE.findall(body))
             with self.subTest(skill=skill):
                 self.assertEqual([c for c in collaborators if c not in referenced], [])
+
+    NO_PLAN_GUARDS = {
+        "minime-project-orient": ["a missing plan or checkpoint is an observation, not a gap",
+                                  "no plan, on purpose"],
+        "minime-project-inception": ["never use this skill to add a plan to an established project",
+                                     "an inferred brief is a proposal, not consent"],
+        "minime-decision-prompt": ["needs an explicit pick"],
+        "minime-agent-orchestrator": ["never route it to `minime-project-inception`"],
+    }
+
+    def test_established_project_without_plan_is_not_bootstrapped(self):
+        """Regression: an agent added a plan to an established project that has
+        none on purpose, after a biased bootstrap question and a bare "go".
+        The guards that stop each step of that chain stay in place. This pins
+        wording: rephrasing a guard means updating its phrase here on purpose.
+        """
+        for skill, phrases in self.NO_PLAN_GUARDS.items():
+            text = (REPO_ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+            text = " ".join(text.lower().split())
+            with self.subTest(skill=skill):
+                self.assertEqual([p for p in phrases if p not in text], [])
 
     GATE_ORDER = ["minime-doc-sync", "minime-scope-boundary", "minime-code-simplifier",
                   "minime-code-reviewer", "minime-verification-gate"]

@@ -219,10 +219,11 @@ scripts/minime claude-hook uninstall --write
 Behavior:
 
 - Install copies `scripts/commit-gate` to
-  `~/.config/minime/claude-hooks/commit-gate` and adds one `PreToolUse` hook
-  for `Bash` to `~/.claude/settings.json`. Other settings and hooks are kept,
-  reinstalling does not add a second entry, and an unreadable settings file is
-  refused. Uninstall removes only that entry and the copied script.
+  `~/.config/minime/claude-hooks/commit-gate` and adds a `PreToolUse` hook
+  for `Bash` and a `Stop` hook to `~/.claude/settings.json`. Other settings
+  and hooks are kept, reinstalling does not add second entries, and an
+  unreadable settings file is refused. Uninstall removes only those entries
+  and the copied script.
 - Before each Bash call, the gate checks for a `git commit` command. It blocks
   the commit (exit 2, with a message to the agent) when the session has loaded
   a MiniMe skill but the current turn has not loaded `minime-project-commit` or
@@ -238,6 +239,10 @@ Behavior:
 - Before blocking, the gate re-reads the transcript for up to 2 seconds,
   because a skill read sent in the same parallel batch as the commit can reach
   the transcript after the hook starts.
+- When a turn ends, the `Stop` hook blocks once (exit 2, with a message to the
+  agent) if the turn loaded a MiniMe skill and its last main-thread reply does
+  not contain `Recommended next action`. It does not block again while the
+  agent is continuing from that block (`stop_hook_active`).
 
 ### `scripts/minime codex-hook install|uninstall`
 
@@ -250,7 +255,7 @@ scripts/minime codex-hook uninstall --write
 
 Behavior:
 
-- Same as `claude-hook`, with the script in
+- Same as `claude-hook` without the `Stop` hook, with the script in
   `~/.config/minime/codex-hooks/commit-gate` and the entry in
   `~/.codex/hooks.json`.
 - Codex runs a user-level hook only after you trust it in `/hooks`, and again

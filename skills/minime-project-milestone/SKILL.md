@@ -46,6 +46,9 @@ them.
   before anything can ship.
 - Mark stretch goals as optional and non-load-bearing.
 - Include tests and docs updates in the definition of done.
+- Link to a checklist that already lives in another doc; do not restate it.
+- Leave out facts that go stale with the next commit (baseline SHAs, test
+  or assertion counts) and session provenance ("the user selected ...").
 - Reflect status changes in the project log and relevant specs.
 - Use a handoff contract when consuming a spec to confirm it answers what
   the milestone needs.

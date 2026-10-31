@@ -211,6 +211,11 @@ current position.
   settings, adding or removing only their own entry. The installed hook
   duplicates a little transcript parsing so it runs without the MiniMe repo.
   Codex runs it only after the user trusts it in `/hooks`.
+- Amendment (2026-10-20): in Claude Code the same script is also a `Stop`
+  hook. A turn that loaded a MiniMe skill may not end without `Recommended
+  next action:`, progress updates included; the hook blocks once and the agent
+  adds the line. Transcripts showed late-session turns dropping the line.
+  Codex is not covered until its stop-hook support is checked.
 
 ## Decision 14 — Installer-generated host adapters
 

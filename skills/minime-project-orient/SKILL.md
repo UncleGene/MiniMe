@@ -48,7 +48,10 @@ Do not use when:
    project guide. Common locations: `docs/implementation-plan.md`,
    `docs/current-state.md`, or `PLAN.md` at root. Extract: the active
    phase name and status, the next concrete action, and any open
-   questions.
+   questions. If there is no plan file, find where the project tracks
+   status instead: open-items, "not yet" or to-do sections in the guide or
+   development docs, or an issue tracker the guide names. Use that as the
+   current state.
 
 3. **Read the latest session checkpoint.** If a `docs/sessions/` directory
    exists, list entries and read the most recent one. Extract: branch and
@@ -82,7 +85,8 @@ Do not use when:
    option list from what was found:
 
    - Continue the remaining-work item from the latest checkpoint (if any).
-   - Start the next concrete action from the plan.
+   - Start the next concrete action from the plan, or the next open item
+     from wherever the project tracks status.
    - Run `minime-doc-sync` with `all` scope (if Step 5 detected drift).
    - Run `minime-plan-review` (if phase status is ambiguous).
    - Ask the user for direction (if state is unclear or sources conflict).
@@ -99,8 +103,13 @@ Do not use when:
   and prefer current state over the document when they disagree.
 - If the latest checkpoint disagrees with the plan on phase position,
   surface the conflict — do not pick a side silently.
-- If no plan or checkpoint exists, say so explicitly and ask the user
-  whether to bootstrap one. Do not invent state.
+- A missing plan or checkpoint is an observation, not a gap. A project
+  with a guide, requirements or commit history may have none on purpose;
+  report the status location from Step 2 and offer next work from it. Ask
+  about bootstrapping a plan only when no such location exists, through
+  `minime-decision-prompt`. Include a "No plan, on purpose" option, and do
+  not recommend bootstrapping unless the user asked for a plan. Do not
+  invent state.
 - If the project guide names skills that are not registered (e.g.
   `host-registration-audit` would fail), record the gap; do not assume
   the catalog is available.
@@ -165,8 +174,10 @@ follow its full procedure. Do not approximate from memory.
 - "Run plan review" → `minime-plan-review`.
 - Plan vs checkpoint conflict → `minime-course-correction-triage`.
 - Drift in verified claims → `minime-doc-sync`.
-- No plan or checkpoint exists → ask the user; if confirmed, bootstrap
-  via `minime-project-inception`.
+- Established project with no status location, and the user explicitly
+  picks a plan → `minime-project-milestone`.
+- No guide, requirements or substantial code (an empty or notes-only repo)
+  → `minime-project-inception`.
 
 ## Interaction rules
 

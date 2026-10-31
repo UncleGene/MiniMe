@@ -55,6 +55,11 @@ different paths. Do not resolve the question — stop and wait.
 - Cite the artifacts each option affects (path:line or document section).
 - Two options is the default; add a third only when it is materially
   different.
+- A terse free-text reply ("go", "ok") approves the recommended option
+  only when that option is low-impact, in-repo and reversible. An option
+  that creates a tracked doc, edits the project guide (`AGENTS.md`,
+  `CLAUDE.md`, `GEMINI.md`) or reaches outside the repo needs an explicit
+  pick by name; re-ask naming the options.
 - After the user resolves a choice, record it as a durable decision.
 - Render the question and options as a structured interactive choice through
   the host's choice UI when one is available (for example, `AskUserQuestion`

@@ -80,7 +80,11 @@ if a correct seam exists. A correct seam exercises the real bug pattern, not a
 shallow proxy. If no correct seam exists, document that finding.
 
 If a fix does not work: STOP. Count attempts.
-- Fewer than 3: return to Phase 3 with new information.
+- 1: return to Phase 3 with new information.
+- 2: write down the one premise both fixes assumed (or state that they share
+  none) and test it directly with an observation that would differ if it were
+  false. If false, the cause is elsewhere; if true, restate the premise one
+  level deeper and test that. Then return to Phase 3.
 - 3 or more: the architecture may be the problem. Are fixes revealing new symptoms
   in different places? Discuss with the user before attempting another fix.
 
@@ -103,7 +107,8 @@ fix is in, not before.
 - "Just try changing X and see what happens"
 - Making multiple changes at once
 - Proposing solutions before completing Phase 1
-- "One more fix attempt" when 2+ already failed
+- "One more fix attempt" after 2 failures with their shared premise untested,
+  or after 3+ failures
 - Each fix reveals a new problem in a different place
 
 ## Quick reference

@@ -1,6 +1,6 @@
 ---
 name: minime-project-inception
-description: Turn a new project idea into a development-ready project. Interview the user about purpose, users, scope, constraints and success criteria, then create the project guide, requirements and first milestone. Use when starting a new project, or when a repo has an idea or code but no requirements or plan.
+description: Turn a new project idea into a development-ready project. Interview the user about purpose, users, scope, constraints and success criteria, then create the project guide, requirements and first milestone. Use when starting a new project, or when a repo holds only notes or a code sketch and no guide or requirements.
 metadata:
   minime_kind: target-reusable
   model_tier: reasoning
@@ -18,11 +18,13 @@ files only: no references to MiniMe, its skills, or a skill-routing section.
 ## When to use
 
 - The user describes a new project, product or tool idea and wants to start.
-- A repo has code or notes but no project guide, requirements or plan.
+- A repo holds only notes or a code sketch, with no project guide or
+  requirements.
 
 Do not use when:
 
-- A project guide and plan exist: use `minime-project-orient`.
+- A project guide, requirements or decisions, or a non-trivial source tree
+  exist: use `minime-project-orient`, even when no plan exists.
 - An existing project has drifted or was inherited: use
   `minime-project-reassessment`.
 - The user wants one feature added to an existing project: use
@@ -32,9 +34,12 @@ Do not use when:
 
 1. **Check the starting state.** Look for `AGENTS.md`, `CLAUDE.md`,
    `GEMINI.md`, `docs/requirements.md`, `docs/implementation-plan.md`, a
-   README and source code. If a guide and plan exist, stop and route to
-   `minime-project-orient`. Never overwrite an existing file; extend it or
-   ask. Read existing code and notes before asking anything they answer.
+   README and source code. If a project guide, requirements or decisions,
+   or a non-trivial source tree exist, stop and route to
+   `minime-project-orient` (or `minime-project-reassessment` for a drifted
+   project); a README or notes alone do not stop it. Never use this skill
+   to add a plan to an established project. Never overwrite an existing
+   file. Read existing code and notes before asking anything they answer.
 
 2. **Take the idea.** Ask the user to describe the idea in their own words
    (plain prose; there are no options yet). Restate it as one paragraph:
@@ -63,7 +68,8 @@ Do not use when:
 5. **Confirm the brief.** Present a compact brief in chat: problem, users,
    scope, non-goals, constraints, success criteria, assumptions, open
    questions. Ask for approval or the item to revise. Do not write files
-   before approval.
+   before approval. This holds when the brief is inferred from notes or
+   code: an inferred brief is a proposal, not consent.
 
 6. **Write the artifacts.** Create only these, each through its owner:
 

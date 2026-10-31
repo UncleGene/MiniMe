@@ -6,6 +6,10 @@ a MiniMe skill but the current turn has not loaded a commit skill, so the
 commit procedure is in context at every agent commit. Sessions that never
 loaded a MiniMe skill are not affected. Exit 2 blocks the call and shows the
 message to the agent.
+
+In Claude Code it is also a Stop hook: a turn that loaded a MiniMe skill may
+not end without `Recommended next action:` in its last message. It blocks once
+per stop, so the agent's added line ends the turn.
 """
 import json
 import re
@@ -37,6 +41,9 @@ RECHECKS = 8
 RECHECK_SECONDS = 0.25
 MESSAGE = ("MiniMe commit gate: this turn has not loaded a commit skill. Read and follow "
            "minime-project-commit (minime-self-commit in the MiniMe repo), then commit.")
+NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
+STOP_MESSAGE = ("MiniMe next-action gate: this turn loaded a MiniMe skill, so end it with "
+                "`Recommended next action: <one concrete step>`. Add that line now.")
 
 
 def _claude_skills(record: dict) -> tuple[set[str], bool]:
@@ -81,10 +88,22 @@ def _codex_skills(record: dict) -> tuple[set[str], bool]:
     return set(), False
 
 
-def _loaded_skills(path: str) -> tuple[set[str], set[str]]:
-    """Skills loaded in the whole session and in its current turn."""
+def _claude_text(record: dict) -> str:
+    """The last non-empty text block of a main-thread Claude Code reply."""
+    if record.get("type") != "assistant" or record.get("isSidechain"):
+        return ""
+    content = (record.get("message") or {}).get("content")
+    texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+             and b.get("text", "").strip()] if isinstance(content, list) else []
+    return texts[-1] if texts else ""
+
+
+def _loaded_skills(path: str) -> tuple[set[str], set[str], str]:
+    """Skills loaded in the whole session and in its current turn, and the
+    turn's latest reply text."""
     session: set[str] = set()
     turn: set[str] = set()
+    final = ""
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             try:
@@ -95,10 +114,11 @@ def _loaded_skills(path: str) -> tuple[set[str], set[str]]:
                 continue
             found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
             if new_turn:
-                turn = set()
+                turn, final = set(), ""
             session |= found
             turn |= found
-    return session, turn
+            final = _claude_text(record) or final
+    return session, turn, final
 
 
 def _executed_text(command: str) -> str:
@@ -122,10 +142,26 @@ def blocked(event: dict) -> bool:
     # hook before the read is written, so re-read briefly before blocking.
     for attempt in range(RECHECKS + 1):
         try:
-            session, turn = _loaded_skills(event["transcript_path"])
+            session, turn, _ = _loaded_skills(event["transcript_path"])
         except (KeyError, TypeError, OSError):
             return False  # No readable transcript: nothing to judge against.
         if not session or turn & COMMIT_SKILLS:
+            return False
+        if attempt < RECHECKS:
+            time.sleep(RECHECK_SECONDS)
+    return True
+
+
+def stop_blocked(event: dict) -> bool:
+    if event.get("stop_hook_active"):
+        return False  # The agent is already continuing from this hook's block.
+    # The final reply can reach the transcript just after the hook starts.
+    for attempt in range(RECHECKS + 1):
+        try:
+            _, turn, final = _loaded_skills(event["transcript_path"])
+        except (KeyError, TypeError, OSError):
+            return False
+        if not turn or NEXT_ACTION_RE.search(final):
             return False
         if attempt < RECHECKS:
             time.sleep(RECHECK_SECONDS)
@@ -137,8 +173,11 @@ def main() -> int:
         event = json.load(sys.stdin)
     except json.JSONDecodeError:
         return 0
-    if isinstance(event, dict) and blocked(event):
-        print(MESSAGE, file=sys.stderr)
+    if not isinstance(event, dict):
+        return 0
+    stop = event.get("hook_event_name") == "Stop"
+    if (stop_blocked if stop else blocked)(event):
+        print(STOP_MESSAGE if stop else MESSAGE, file=sys.stderr)
         return 2
     return 0
 

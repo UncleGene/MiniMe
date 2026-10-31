@@ -122,7 +122,9 @@ Two user-level hooks enforce the mechanical part of the bar without touching
 consuming repos. `scripts/slop-scan` runs as a global pre-commit hook through
 `core.hooksPath` and then hands off to the repository's own hook.
 `scripts/commit-gate` runs as a Claude Code or Codex `PreToolUse` hook and
-blocks an agent's `git commit` until the commit skill is loaded in that turn.
+blocks an agent's `git commit` until the commit skill is loaded in that turn;
+in Claude Code it is also a `Stop` hook that keeps a MiniMe turn from ending
+without a recommended next action.
 Both are copied to `~/.config/minime/` so they run without the MiniMe repo.
 Links: REQ-003; Decisions 12/13.
 

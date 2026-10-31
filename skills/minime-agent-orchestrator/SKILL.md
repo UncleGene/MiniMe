@@ -147,8 +147,10 @@ skill file and follow its procedure. This skill does not own question shape and
 must not render the question itself. Pass 2-4 concrete options and, for each,
 the orchestration ratings this skill adds on top of the decision-prompt shape:
 future-proof rating, one-way-door risk, complexity, safety and regression risk,
-roadmap impact, and progress impact (High/Medium/Low each). Mark the
-recommended option explicitly.
+roadmap impact, and progress impact (High/Medium/Low each). Rate one-way-door
+risk at least Medium for an option that adds a tracked doc or edits the
+project guide, and High when the repo is public or the change leaves the repo. Mark
+the recommended option explicitly.
 
 ## Skeptic pass
 
@@ -158,6 +160,8 @@ recommended option explicitly.
   it.
 - Stop and flag when a project guide routing rule contradicts the default
   table or the apparent classification.
+- A missing plan in a project with a guide, requirements or history is not a
+  new project; never route it to `minime-project-inception`.
 
 ## Output
 

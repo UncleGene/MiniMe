@@ -2049,11 +2049,15 @@ def command_git_hook(args: argparse.Namespace) -> int:
 
 # Agent hooks (Decision 13): a user-level PreToolUse hook runs
 # scripts/commit-gate before Bash calls and blocks agent commits made without a
-# commit skill loaded in the turn. Claude Code and Codex share the hooks JSON
-# shape; each host gets its own script copy, and only its own entry is touched.
-AGENT_HOOKS = {
-    "claude": {"name": "Claude Code", "dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json"},
-    "codex": {"name": "Codex", "dir": "~/.config/minime/codex-hooks", "settings": "~/.codex/hooks.json"},
+# commit skill loaded in the turn. In Claude Code the same script is a Stop hook
+# that keeps a MiniMe turn from ending without a next action. Claude Code and
+# Codex share the hooks JSON shape; each host gets its own script copy, and only
+# its own entries are touched. Each event maps to its tool matcher, if any.
+AGENT_HOOKS: dict[str, dict[str, Any]] = {
+    "claude": {"name": "Claude Code", "dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json",
+               "events": {"PreToolUse": "Bash", "Stop": None}},
+    "codex": {"name": "Codex", "dir": "~/.config/minime/codex-hooks", "settings": "~/.codex/hooks.json",
+              "events": {"PreToolUse": "Bash"}},
 }
 
 
@@ -2066,7 +2070,7 @@ def _load_hook_settings(path: Path) -> dict:
         raise MiniMeError("MINIME_E_HOOK_SETTINGS_UNREADABLE", f"{path} is not readable JSON: {error}",
                           "Fix the file, then retry.") from error
     if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict) \
-            or not isinstance(settings.get("hooks", {}).get("PreToolUse", []), list):
+            or not all(isinstance(entries, list) for entries in settings.get("hooks", {}).values()):
         raise MiniMeError("MINIME_E_HOOK_SETTINGS_UNREADABLE", f"{path} has an unexpected hooks shape.",
                           "Fix the file, then retry.")
     return settings
@@ -2080,14 +2084,17 @@ def command_agent_hook(args: argparse.Namespace) -> int:
         raise MiniMeError("MINIME_E_AGENT_HOOK_UNSAFE", f"{script} must be a regular file.",
                           "Remove it, then retry.")
     settings = _load_hook_settings(settings_path)
-    entries = settings.get("hooks", {}).get("PreToolUse", [])
+    hooks = settings.setdefault("hooks", {})
 
     def ours(hook: object) -> bool:
         return isinstance(hook, dict) and hook.get("command") == str(script)
 
-    installed = any(ours(h) for e in entries if isinstance(e, dict) for h in e.get("hooks") or [])
+    def installed(event: str) -> bool:
+        return any(ours(h) for e in hooks.get(event, []) if isinstance(e, dict) for h in e.get("hooks") or [])
+
+    events = " and ".join(f"{event} {matcher or ''}".rstrip() for event, matcher in host["events"].items())
     if args.action == "install":
-        print(f"{host['name']} commit gate: {script} (PreToolUse Bash hook in {settings_path})")
+        print(f"{host['name']} commit gate: {script} ({events} hook in {settings_path})")
         if not args.write:
             print("writes: none (dry-run; add --write to install)")
             return 0
@@ -2095,29 +2102,34 @@ def command_agent_hook(args: argparse.Namespace) -> int:
         script.write_text((repo_root() / "scripts" / "commit-gate").read_text(encoding="utf-8"),
                           encoding="utf-8")
         script.chmod(0o755)
-        if not installed:
-            settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append(
-                {"matcher": "Bash", "hooks": [{"type": "command", "command": str(script)}]})
+        missing = [event for event in host["events"] if not installed(event)]
+        for event in missing:
+            matcher = host["events"][event]
+            hooks.setdefault(event, []).append(
+                {**({"matcher": matcher} if matcher else {}), "hooks": [{"type": "command", "command": str(script)}]})
+        if missing:
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
         print("Result: installed")
         return 0
-    print(f"{host['name']} commit gate: remove {script} and its {settings_path} entry")
+    print(f"{host['name']} commit gate: remove {script} and its {settings_path} entries")
     if not args.write:
         print("writes: none (dry-run; add --write to uninstall)")
         return 0
-    if installed:
-        kept = []
-        for entry in entries:
-            if isinstance(entry, dict) and any(ours(h) for h in entry.get("hooks") or []):
-                entry = {**entry, "hooks": [h for h in entry["hooks"] if not ours(h)]}
-                if not entry["hooks"]:
-                    continue
-            kept.append(entry)
-        settings["hooks"]["PreToolUse"] = kept
-        if not kept:
-            del settings["hooks"]["PreToolUse"]
-        if not settings["hooks"]:
+    if any(installed(event) for event in list(hooks)):
+        for event in list(hooks):
+            kept = []
+            for entry in hooks[event]:
+                if isinstance(entry, dict) and any(ours(h) for h in entry.get("hooks") or []):
+                    entry = {**entry, "hooks": [h for h in entry["hooks"] if not ours(h)]}
+                    if not entry["hooks"]:
+                        continue
+                kept.append(entry)
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+        if not hooks:
             del settings["hooks"]
         settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     script.unlink(missing_ok=True)

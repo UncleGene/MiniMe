@@ -65,8 +65,11 @@ Before editing, output a concise table:
 - Fix broken or stale commands first.
 - Remove generic, duplicate, or obsolete guidance.
 - Move deep detail into linked files.
-- Use emphasis ("IMPORTANT", "NEVER") only on rules agents consistently skip —
-  unenforced emphasis decays; use it sparingly and only where evidence supports it.
+- For a rule agents keep missing, propose enforcement at the highest level that
+  works: a hook, script or CI check; then a lint or type check whose error names
+  the fix; then a test. Keep it as prose only when it needs judgment, then add
+  emphasis ("IMPORTANT", "NEVER") and one example of the failure. Unenforced
+  emphasis decays; use it sparingly and only where evidence supports it.
 - Keep rewrites incremental; preserve useful wording.
 
 ### Step 5 — Validate and apply
@@ -98,7 +101,8 @@ Pass:
 - Do not add gotchas not grounded in a real failure — hypothetical warnings become
   noise agents learn to ignore.
 - Do not remove emphasis markers from rules agents consistently skip — they exist
-  because the default phrasing was insufficient.
+  because the default phrasing was insufficient. Remove them only when a hook,
+  check or test now enforces the rule.
 - A high quick-audit score does not excuse skipping command validation — stale
   commands can hide behind passing checklists.
 
