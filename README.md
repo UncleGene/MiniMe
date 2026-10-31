@@ -21,12 +21,12 @@ project you may later share or open-source fit to show.
 
 ## What you get
 
-- **29 skills** covering the development loop: project inception and
+- **30 skills** covering the development loop: project inception and
   orientation, requirements and specs, planning and replanning, implementation
-  step selection, debugging, review, simplification, documentation sync and
-  commit shaping. Each skill carries the same interaction rules: argued choices
-  instead of silent guesses, evidence before "done", and a recommended next
-  action at the end of every response.
+  step selection, debugging, review, simplification, documentation sync,
+  commit shaping and pre-publish cleanup. Each skill carries the same
+  interaction rules: argued choices instead of silent guesses, evidence before
+  "done", and a recommended next action at the end of every response.
 - **Layered code review.** The reviewer applies generic slop checks plus a
   profile for each stack layer the diff touches (currently Python and agent
   skills/instructions), and warns when a touched layer has no profile.
@@ -148,7 +148,7 @@ You invoke these directly.
 | Plan and route | `minime-implementation-step-selector`, `minime-replan`, `minime-course-correction-triage`, `minime-plan-review` |
 | Build and fix | `minime-systematic-debugging`, `minime-code-reviewer` |
 | Keep docs true | `minime-doc-sync`, `minime-agents-md-audit`, `minime-design-simplifier` |
-| Ship | `minime-project-commit` |
+| Ship | `minime-project-commit`, `minime-publish-prep` |
 
 ### Workflow skills
 

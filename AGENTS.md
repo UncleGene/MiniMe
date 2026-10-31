@@ -297,6 +297,7 @@ requires a user decision, external approval, or unavailable environment.
 | Write or refine a feature spec | `minime-project-spec` |
 | Plan tests and release gates | `minime-validation-planner` |
 | Audit an agent instruction file | `minime-agents-md-audit` |
+| Prepare a repo for publishing: privacy sweep, doc coherence, README, history | `minime-publish-prep` |
 | Systematic debugging (bugs, test failures, unexpected behavior) | `minime-systematic-debugging` |
 
 ## Verifiable Claims Index
@@ -305,10 +306,10 @@ Numeric facts that drift. Verify these against source before citing them.
 
 | Claim | Source | Current value |
 |---|---|---|
-| Target-reusable skill count | `scripts/minime skills list --json` | 29 |
+| Target-reusable skill count | `scripts/minime skills list --json` | 30 |
 | Internal skill count | `scripts/minime skills list --json` | 2 |
 | Test count | `python -m unittest discover -s tests` | Verify from the current run |
-| Registered host skills (per surface) | `scripts/minime host-registration-audit --skills-root <surface> --json` | 29 |
+| Registered host skills (per surface) | `scripts/minime host-registration-audit --skills-root <surface> --json` | 30 |
 | Installed surfaces | `scripts/minime skills install --json` | 4 (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`, `~/.copilot/skills`) |
 
 ## Key Invariants

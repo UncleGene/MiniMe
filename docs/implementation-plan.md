@@ -8,7 +8,7 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
 
 ## Current state
 
-- 29 reusable skills and 2 internal skills, installed at user level on all
+- 30 reusable skills and 2 internal skills, installed at user level on all
   four host roots by `scripts/minime skills install --write`.
 - Review applies generic slop checks plus layer profiles for Python and agent
   skills/instructions; `review-eval` scores the installed reviewer on

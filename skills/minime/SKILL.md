@@ -113,6 +113,7 @@ the conflict to the user.
 | Simplify architecture/design | `minime-design-simplifier` | User approval per finding |
 | Docs drifted from code | `minime-doc-sync` | Risky updates surfaced |
 | Agent instruction quality | `minime-agents-md-audit` | User approval per change |
+| Prepare repo for publishing | `minime-publish-prep` | User approval before squash or deletion |
 | Session or agent boundary | `minime-context-handoff` | Envelope verified |
 
 At each transition, confirm the upstream artifact answers what the downstream
