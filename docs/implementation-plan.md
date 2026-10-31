@@ -79,8 +79,9 @@ not how often agents write slop, so treat it as an instrument for cost
 decisions: run it when the reviewer or a profile changes, or before a routing
 change.
 
-Cost and misfire baselines come from the maintainer's local transcripts and
-are not published (Decision 8). Compare `transcript-audit` runs of the same
+Cost and misfire baselines come from the maintainer's local transcripts; the
+raw transcript and review reports are never committed (Decision 8), while the
+plan records their aggregates. Compare `transcript-audit` runs of the same
 host over time; a cheaper routing must not raise the misfire counts.
 
 ## Next implementation step

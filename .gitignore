@@ -6,3 +6,4 @@ __pycache__/
 
 docs/sessions/*
 !docs/sessions/.gitkeep
+.backups/

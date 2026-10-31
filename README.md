@@ -68,8 +68,9 @@ scripts/minime host-registration-audit --skills-root ~/.codex/skills
 ```
 
 Every command is read-only unless you pass `--write`. Installation copies each
-skill into a wrapper directory named for the skill, with a regular `SKILL.md` and generated
-host metadata. Re-run `skills install --write` after `git pull` to refresh it.
+skill into a wrapper directory named for the skill, with a regular `SKILL.md`
+and generated host metadata. Re-run `skills install --write` after `git pull`
+to refresh it.
 Start a new agent session afterwards so the host discovers the skills.
 
 ### Optional hooks
