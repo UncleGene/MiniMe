@@ -24,7 +24,7 @@ files only: no references to MiniMe, its skills, or a skill-routing section.
 Do not use when:
 
 - A project guide, requirements or decisions, or a non-trivial source tree
-  exist: use `minime-project-orient`, even when no plan exists.
+  exist: use `minime-orient`, even when no plan exists.
 - An existing project has drifted or was inherited: use
   `minime-project-reassessment`.
 - The user wants one feature added to an existing project: use
@@ -36,7 +36,7 @@ Do not use when:
    `GEMINI.md`, `docs/requirements.md`, `docs/implementation-plan.md`, a
    README and source code. If a project guide, requirements or decisions,
    or a non-trivial source tree exist, stop and route to
-   `minime-project-orient` (or `minime-project-reassessment` for a drifted
+   `minime-orient` (or `minime-project-reassessment` for a drifted
    project); a README or notes alone do not stop it. Never use this skill
    to add a plan to an established project. Never overwrite an existing
    file. Read existing code and notes before asking anything they answer.

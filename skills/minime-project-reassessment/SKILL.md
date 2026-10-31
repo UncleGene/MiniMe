@@ -18,7 +18,7 @@ inside this skill; repairs route through owner skills after the user approves.
 - Inheriting a project, or returning after long inactivity.
 - Roadmap changes left docs, design, or tests describing several directions.
 - A more capable model is available and the project deserves a re-examination.
-- Do not use for current-state briefing (`minime-project-orient`), a pre-phase
+- Do not use for current-state briefing (`minime-orient`), a pre-phase
   plan check (`minime-plan-review`), or a single feature or correction
   (`minime-course-correction-triage`).
 

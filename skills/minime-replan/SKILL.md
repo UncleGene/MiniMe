@@ -82,7 +82,7 @@ steps; step 8 always runs.
 
 - Re-derive the classification from the current request and artifacts, even if
   an earlier run or the user's wording suggests one.
-- Flag a classification that contradicts `minime-agent-orchestrator`'s default
+- Flag a classification that contradicts `minime`'s default
   routing or the rows the project guide adds to it.
 - Re-read each artifact before patching it.
 

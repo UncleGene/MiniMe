@@ -1,5 +1,5 @@
 ---
-name: minime-agent-orchestrator
+name: minime
 description: Route multi-step development work to the right skill chains, enforce quality gates at phase transitions, and coordinate cross-agent handoff. Use when a request spans multiple skills or docs, the user asks "what next", or coherent multi-step changes are needed.
 metadata:
   minime_kind: target-reusable
@@ -7,7 +7,7 @@ metadata:
   model_tier_strictness: preferred
 ---
 
-# minime-agent-orchestrator
+# minime
 
 Coordinate agent skill chains for project development work. Classify an
 incoming request against the default routing below and the project guide, assemble the
@@ -95,7 +95,7 @@ the conflict to the user.
 | Request or phase | Owning skill | Transition gate |
 |---|---|---|
 | New project from an idea | `minime-project-inception` | `minime-phase-quality-guard` |
-| Cold start, unknown state | `minime-project-orient` | Verified briefing |
+| Cold start, unknown state | `minime-orient` | Verified briefing |
 | Inherited or drifted project | `minime-project-reassessment` | User accepts repair plan |
 | Feature request or change of direction | `minime-course-correction-triage` | `minime-impact-analyzer` when impact is wider |
 | Mid-project plan change | `minime-replan` | `minime-phase-quality-guard` |

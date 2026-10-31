@@ -35,10 +35,10 @@ Action taken:
 
 ## 2026-10-16 — Orchestrator routing depended on a forbidden project section
 
-Context: README review promoted `minime-agent-orchestrator` as the root skill.
+Context: README review promoted `minime` as the root skill.
 
 Action taken:
-- The orchestrator, `minime-project-orient` and `minime-replan` required a
+- The orchestrator, `minime-orient` and `minime-replan` required a
   skill routing table in the project guide, which Decision 3 forbids in
   consuming repos, so routing was unconfigured outside MiniMe. The
   orchestrator now ships a default routing table naming the installed skills;

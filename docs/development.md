@@ -6,7 +6,7 @@ covers the same ground for people.
 
 ## Repository layout
 
-- `skills/minime-*/SKILL.md` — skills. `metadata.minime_kind: target-reusable`
+- `skills/minime*/SKILL.md` — skills. `metadata.minime_kind: target-reusable`
   skills are installed on hosts; `internal` skills (`minime-generalize-skill`,
   `minime-self-commit`) are used only inside this repo.
 - `skills/minime-code-reviewer/references/` — stack marker table and layer
@@ -63,7 +63,7 @@ Mypy uses its default checks. Host audits need the installed surfaces.
 3. Validate and reinstall:
 
    ```sh
-   scripts/minime skills install-check skills/minime-<name>
+   scripts/minime skills install-check skills/<name>
    python -m pytest tests/ -k test_target_reusable_skills_are_token_conscious
    scripts/minime skills install --write
    ```

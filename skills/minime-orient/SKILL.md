@@ -1,5 +1,5 @@
 ---
-name: minime-project-orient
+name: minime-orient
 description: Cold-start orientation for an agent entering an existing project. Reads the project guide, plan, latest session checkpoint, and git state to produce a verified current-state briefing and next-action options. Use as the entry point when an agent has no prior session context.
 metadata:
   minime_kind: target-reusable
@@ -8,7 +8,7 @@ metadata:
   model_tier_strictness: preferred
 ---
 
-# minime-project-orient
+# minime-orient
 
 
 Read the project's persistent state and produce a briefing that lets an
@@ -26,7 +26,7 @@ when an agent encounters a project cold.
 Do not use when:
 
 - The user has already named a specific task; route directly via
-  `minime-agent-orchestrator`.
+  `minime`.
 - The current session already has an active context from the prior turn.
 - A reflection or checkpoint is the right next step instead of a full
   orientation pass.
@@ -93,7 +93,7 @@ Do not use when:
 
    After presenting the choice, state explicitly: all subsequent
    implementation, documentation, review, and quality work in this session
-   must route through `minime-agent-orchestrator`'s default routing, plus any
+   must route through `minime`'s default routing, plus any
    rows or gates the project guide adds to it (Step 1).
    Do not use ad-hoc approaches for any intent covered by a routed skill.
 
@@ -154,7 +154,7 @@ Do not use when:
 Recommended next action: <one concrete next step>
 
 **Routing reminder:** All subsequent implementation, documentation, review,
-and quality work routes through `minime-agent-orchestrator`'s default routing.
+and quality work routes through `minime`'s default routing.
 ```
 
 When the briefing ends with two or more viable next actions, delegate to

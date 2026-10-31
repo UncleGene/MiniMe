@@ -269,10 +269,10 @@ requires a user decision, external approval, or unavailable environment.
 
 | Intent | Skill |
 |---|---|
-| Cold-start: enter a project with no context, identify state, pick next work | `minime-project-orient` |
+| Cold-start: enter a project with no context, identify state, pick next work | `minime-orient` |
 | Bootstrap a new project from an idea: interview, guide, requirements, first milestone | `minime-project-inception` |
 | Fresh-look reassessment of an inherited or drifted project: goals, docs, design, code, tests | `minime-project-reassessment` |
-| Route a multi-step request or "what next" | `minime-agent-orchestrator` |
+| Route a multi-step request or "what next" | `minime` |
 | Full plan quality pass before a phase transition | `minime-plan-review` |
 | Gate: enforce evidence before completion claims | `minime-verification-gate` |
 | Surgical mid-project plan change | `minime-replan` |

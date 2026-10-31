@@ -7,7 +7,7 @@ quality (REQ-010), and host portability (REQ-004/011). Scope is governed by
 
 ## Components and data flow
 
-1. `skills/minime-*/SKILL.md` contains procedures and routing descriptions.
+1. `skills/minime*/SKILL.md` contains procedures and routing descriptions.
    `metadata.minime_kind` distinguishes target-reusable skills from internal
    generalization/commit procedures. Skills are single files, except that
    `minime-code-reviewer` ships a stack marker table and layer slop profiles in

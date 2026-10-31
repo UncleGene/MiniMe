@@ -132,7 +132,7 @@ unchanged wrappers can still report `exists`. Block details explain the rejectio
 Produced by:
 
 ```sh
-scripts/minime skills install-check skills/minime-agent-orchestrator --json
+scripts/minime skills install-check skills/minime --json
 ```
 
 Important fields:

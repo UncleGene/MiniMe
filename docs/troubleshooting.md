@@ -55,7 +55,7 @@ Fix:
 
 ```sh
 scripts/minime skills list --kind target-reusable
-scripts/minime skills install-check skills/minime-agent-orchestrator
+scripts/minime skills install-check skills/minime
 ```
 
 ## `MINIME_E_INSTALL_OUTSIDE_REPO`
@@ -69,7 +69,7 @@ Cause:
 Fix:
 
 ```sh
-scripts/minime skills install-check skills/minime-agent-orchestrator
+scripts/minime skills install-check skills/minime
 ```
 
 ## `MINIME_E_INSTALL_SYMLINK`
@@ -121,7 +121,7 @@ ordinary metadata paths first; the installer blocks links/nonfiles.
 
 ## Leftover skill wrappers
 
-`host-skill-extra` means a host root still holds a `minime-*` wrapper for a
+`host-skill-extra` means a host root still holds a `minime` or `minime-*` wrapper for a
 skill that is no longer in the catalog, usually after a skill was merged or
 retired. Hosts keep loading it until it is removed. `skills install` does not
 delete wrappers. Confirm the wrapper holds only MiniMe-generated `SKILL.md` and

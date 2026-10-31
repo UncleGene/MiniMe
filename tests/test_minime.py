@@ -316,7 +316,7 @@ class InstallCheckCLITests(unittest.TestCase):
     def test_target_reusable_fixture_passes(self):
         result = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "install-check",
-             "skills/minime-agent-orchestrator"],
+             "skills/minime"],
             capture_output=True,
             text=True,
         )
@@ -336,7 +336,7 @@ class InstallCheckCLITests(unittest.TestCase):
     def test_direct_skill_md_path_works(self):
         result = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "install-check",
-             "skills/minime-agent-orchestrator/SKILL.md"],
+             "skills/minime/SKILL.md"],
             capture_output=True,
             text=True,
         )
@@ -355,7 +355,7 @@ class InstallCheckCLITests(unittest.TestCase):
     def test_json_output_includes_result(self):
         result = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "install-check",
-             "skills/minime-agent-orchestrator", "--json"],
+             "skills/minime", "--json"],
             capture_output=True,
             text=True,
         )
@@ -433,13 +433,13 @@ class SkillsSimilarCLITests(unittest.TestCase):
     def test_local_skill_top_match_is_self(self):
         result = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "similar",
-             "skills/minime-agent-orchestrator"],
+             "skills/minime"],
             capture_output=True,
             text=True,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("MiniMe skills similar", result.stdout)
-        self.assertIn("minime-agent-orchestrator", result.stdout)
+        self.assertIn("name: minime\n", result.stdout)
         self.assertIn("score 1.0", result.stdout)
 
     def test_json_output_shape(self):
@@ -614,6 +614,8 @@ class TransparentConsumptionCLITests(unittest.TestCase):
                 _make_skill_wrapper(skills_root, entry["name"], source_skill_md)
             # Extra unknown skill directory
             (skills_root / "minime-generalize-skill").mkdir()
+            # Unrelated sibling sharing the name prefix; must not be flagged.
+            (skills_root / "minimedia").mkdir()
             result = subprocess.run(
                 [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "host-registration-audit",
                  "--skills-root", str(skills_root), "--json"],
@@ -625,6 +627,8 @@ class TransparentConsumptionCLITests(unittest.TestCase):
         finding_types = {f["type"] for f in output["findings"]}
         self.assertIn("host-skill-missing", finding_types)
         self.assertIn("host-skill-extra", finding_types)
+        flagged_paths = {f["path"] for f in output["findings"]}
+        self.assertFalse(any(p.endswith("minimedia") for p in flagged_paths))
 
     def test_host_registration_audit_blocks_missing_root(self):
         with tempfile.TemporaryDirectory() as d:
@@ -739,8 +743,8 @@ class TransparentConsumptionCLITests(unittest.TestCase):
         self.assertIn("host-skill-wrong-target", finding_types)
 
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink creation not available")
-    def test_host_registration_audit_resolves_minime_agent_orchestrator_to_repo_skill_dir(self):
-        expected_skill = "minime-agent-orchestrator"
+    def test_host_registration_audit_resolves_minime_to_repo_skill_dir(self):
+        expected_skill = "minime"
         expected_source_md = (REPO_ROOT / "skills" / expected_skill / "SKILL.md").resolve()
         self.assertTrue(
             expected_source_md.exists(),
@@ -798,7 +802,7 @@ class TransparentConsumptionCLITests(unittest.TestCase):
     def test_transparent_audit_blocks_copied_skill_name(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root / "AGENTS.md").write_text("Route through minime-agent-orchestrator.\n")
+            (root / "AGENTS.md").write_text("Route through minime-code-reviewer.\n")
             result = subprocess.run(
                 [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "transparent-audit",
                  "--repo", str(root), "--json"],
@@ -809,6 +813,23 @@ class TransparentConsumptionCLITests(unittest.TestCase):
         output = json.loads(result.stdout)
         finding_types = {f["type"] for f in output["repos"][0]["findings"]}
         self.assertIn("copied-minime-skill-body", finding_types)
+
+    def test_transparent_audit_bare_minime_is_reference_only(self):
+        """The bare `minime` skill name is covered by minime-reference alone."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "AGENTS.md").write_text("Route through minime.\n")
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "transparent-audit",
+                 "--repo", str(root), "--json"],
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        finding_types = {f["type"] for f in output["repos"][0]["findings"]}
+        self.assertIn("minime-reference", finding_types)
+        self.assertNotIn("copied-minime-skill-body", finding_types)
 
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink creation not available")
     def test_transparent_audit_blocks_minime_symlink(self):
@@ -1544,7 +1565,7 @@ class AgentHookCLITests(unittest.TestCase):
         def call(code):
             return {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec", "input": code}}
 
-        earlier = [{"type": "session_meta", "payload": {"id": "s"}}, task(), user("$minime-agent-orchestrator go"),
+        earlier = [{"type": "session_meta", "payload": {"id": "s"}}, task(), user("$minime go"),
                    user("<skill>\n<name>minime-project-commit</name>\nbody</skill>"), task(), user("continue")]
         cases = [
             ("no MiniMe skill in the session", [task(), user("fix it")], 0),
@@ -1562,7 +1583,7 @@ class AgentHookCLITests(unittest.TestCase):
         """Parallel tool calls can reach the hook before their reads are on disk."""
         user = {"type": "user", "message": {"role": "user", "content": "go"}}
         loaded = {"type": "assistant", "message": {"role": "assistant", "content": [
-            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime-agent-orchestrator"}}]}}
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime"}}]}}
         read = {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "name": "Read", "input": {"file_path": "/s/skills/minime-self-commit/SKILL.md"}}]}}
         with tempfile.TemporaryDirectory() as d:
@@ -1588,7 +1609,7 @@ class AgentHookCLITests(unittest.TestCase):
             return {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "name": name, "input": data}]}}
 
-        orchestrated = [user("<command-name>/minime-agent-orchestrator</command-name>"),
+        orchestrated = [user("<command-name>/minime</command-name>"),
                         tool("Skill", skill="minime-project-commit"), user("continue")]
         cases = [
             ("no MiniMe skill in the session", [user("fix it")], "git commit -m x", 0),
@@ -1828,7 +1849,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
         section, so the copies cannot drift apart.
         """
         sections = {}
-        for skill_path in sorted((REPO_ROOT / "skills").glob("minime-*/SKILL.md")):
+        for skill_path in sorted((REPO_ROOT / "skills").glob("minime*/SKILL.md")):
             text = skill_path.read_text(encoding="utf-8")
             if "minime_kind: target-reusable" not in text:
                 continue
@@ -1850,10 +1871,10 @@ class DocumentationConsistencyTests(unittest.TestCase):
                 self.assertNotIn("## Skill Routing", adapter)
                 self.assertLess(adapter.count("\n"), 8)
 
-    SKILL_REFERENCE = re.compile(r"(?<![\w/.-])minime-[a-z]+(?:-[a-z]+)*(?![\w*<-])")
+    SKILL_REFERENCE = re.compile(r"(?<![\w/.-])minime(?:-[a-z]+)*(?![\w*<-])")
 
     def test_skill_references_resolve(self):
-        """Every `minime-*` skill named in a skill, guide or README exists."""
+        """Every `minime*` skill named in a skill, guide or README exists."""
         names = {p.parent.name for p in (REPO_ROOT / "skills").glob("*/SKILL.md")}
         reference = self.SKILL_REFERENCE
         sources = [REPO_ROOT / "AGENTS.md", REPO_ROOT / "README.md",
@@ -1867,15 +1888,15 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertEqual(dangling, [])
 
     REQUIRED_COLLABORATORS = {
-        "minime-agent-orchestrator": ["minime-course-correction-triage", "minime-project-adr",
-                                      "minime-plan-review", "minime-decision-prompt",
-                                      "minime-implementation-step-selector"],
+        "minime": ["minime-course-correction-triage", "minime-project-adr",
+                   "minime-plan-review", "minime-decision-prompt",
+                   "minime-implementation-step-selector"],
         "minime-implementation-step-selector": ["minime-decision-prompt", "minime-project-commit"],
         "minime-code-reviewer": ["minime-decision-prompt", "minime-project-commit"],
         "minime-project-commit": ["minime-doc-sync", "minime-scope-boundary",
                                   "minime-code-simplifier", "minime-code-reviewer"],
-        "minime-project-orient": ["minime-decision-prompt", "minime-project-inception",
-                                  "minime-project-milestone"],
+        "minime-orient": ["minime-decision-prompt", "minime-project-inception",
+                          "minime-project-milestone"],
         "minime-project-inception": ["minime-decision-prompt", "minime-requirements-manager",
                                      "minime-project-milestone", "minime-phase-quality-guard"],
         "minime-replan": ["minime-decision-prompt", "minime-project-milestone",
@@ -1900,12 +1921,12 @@ class DocumentationConsistencyTests(unittest.TestCase):
                 self.assertEqual([c for c in collaborators if c not in referenced], [])
 
     NO_PLAN_GUARDS = {
-        "minime-project-orient": ["a missing plan or checkpoint is an observation, not a gap",
-                                  "no plan, on purpose"],
+        "minime-orient": ["a missing plan or checkpoint is an observation, not a gap",
+                          "no plan, on purpose"],
         "minime-project-inception": ["never use this skill to add a plan to an established project",
                                      "an inferred brief is a proposal, not consent"],
         "minime-decision-prompt": ["needs an explicit pick"],
-        "minime-agent-orchestrator": ["never route it to `minime-project-inception`"],
+        "minime": ["never route it to `minime-project-inception`"],
     }
 
     def test_established_project_without_plan_is_not_bootstrapped(self):
@@ -2018,7 +2039,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
             "typing \"go\"",
             "typing go",
         ]
-        for skill_file in sorted((REPO_ROOT / "skills").glob("minime-*/SKILL.md")):
+        for skill_file in sorted((REPO_ROOT / "skills").glob("minime*/SKILL.md")):
             text = " ".join(skill_file.read_text(encoding="utf-8").lower().split())
             with self.subTest(skill=skill_file.relative_to(REPO_ROOT)):
                 for phrase in forbidden:
@@ -2170,7 +2191,7 @@ class SkillsInstallCLITests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Result: written", result.stdout)
-            skill_dir = Path(d) / "minime-agent-orchestrator"
+            skill_dir = Path(d) / "minime"
             self.assertTrue(skill_dir.is_dir(), "wrapper dir should exist")
             self.assertFalse(skill_dir.is_symlink(), "wrapper dir must not be a symlink")
             skill_md = skill_dir / "SKILL.md"
@@ -2191,8 +2212,8 @@ class SkillsInstallCLITests(unittest.TestCase):
     def test_install_write_updates_expected_skill_md_symlink_without_force(self):
         with tempfile.TemporaryDirectory() as d:
             host = Path(d)
-            source_skill_md = REPO_ROOT / "skills" / "minime-agent-orchestrator" / "SKILL.md"
-            skill_dir = host / "minime-agent-orchestrator"
+            source_skill_md = REPO_ROOT / "skills" / "minime" / "SKILL.md"
+            skill_dir = host / "minime"
             skill_dir.mkdir()
             os.symlink(str(source_skill_md.resolve()), str(skill_dir / "SKILL.md"))
             (skill_dir / "agents").mkdir()
@@ -2210,7 +2231,7 @@ class SkillsInstallCLITests(unittest.TestCase):
     def test_install_conflicts_without_force(self):
         with tempfile.TemporaryDirectory() as d:
             host = Path(d)
-            wrong = host / "minime-agent-orchestrator"
+            wrong = host / "minime"
             os.symlink("/tmp/nowhere", str(wrong))
             result = subprocess.run(
                 [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "install",
@@ -2222,7 +2243,7 @@ class SkillsInstallCLITests(unittest.TestCase):
     def test_install_force_overwrites_conflicting_symlink(self):
         with tempfile.TemporaryDirectory() as d:
             host = Path(d)
-            wrong = host / "minime-agent-orchestrator"
+            wrong = host / "minime"
             os.symlink("/tmp/nowhere", str(wrong))
             result = subprocess.run(
                 [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "skills", "install",

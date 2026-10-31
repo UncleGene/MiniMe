@@ -68,7 +68,7 @@ scripts/minime host-registration-audit --skills-root ~/.codex/skills
 ```
 
 Every command is read-only unless you pass `--write`. Installation copies each
-skill into a `minime-<name>/` wrapper with a regular `SKILL.md` and generated
+skill into a wrapper directory named for the skill, with a regular `SKILL.md` and generated
 host metadata. Re-run `skills install --write` after `git pull` to refresh it.
 Start a new agent session afterwards so the host discovers the skills.
 
@@ -97,11 +97,11 @@ its own to the project.
 
 ### Start here: the orchestrator
 
-`minime-agent-orchestrator` is the root skill for development work. When a
+`minime` is the root skill for development work. When a
 task spans more than one step, or you just want to know what to do next, start
 with it:
 
-- "What next?" or "use minime-agent-orchestrator to add CSV export"
+- "What next?" or "use minime to add CSV export"
 - It classifies the request, runs intake triage on changes of direction, picks
   the skill chain (spec, decisions, plan, implementation, review, commit), and
   enforces the quality gate at each transition.
@@ -119,9 +119,9 @@ skill, as in the table below.
 
 | Situation | Start with | What happens |
 |---|---|---|
-| Multi-step work, or "what next?" | `minime-agent-orchestrator` | Routes the request through the right skill chain with gates between phases. |
+| Multi-step work, or "what next?" | `minime` | Routes the request through the right skill chain with gates between phases. |
 | New project from an idea | `minime-project-inception` | Interview on purpose, users, scope and success criteria; creates the project guide, requirements and first milestone. |
-| Entering an existing project cold | `minime-project-orient` | Reads guide, plan, latest checkpoint and git state; returns a verified briefing and next-action options. |
+| Entering an existing project cold | `minime-orient` | Reads guide, plan, latest checkpoint and git state; returns a verified briefing and next-action options. |
 | Inherited or drifted project | `minime-project-reassessment` | Judges goals, docs, design, code and tests; produces a prioritized repair plan. |
 | "What should I work on next?" | `minime-implementation-step-selector` | Picks the next concrete slice from the docs and repo state. |
 | New feature or a change of direction | `minime-course-correction-triage` | Checks the request against accepted decisions, traces impact, challenges value and tests whether it can work as stated before any code, scaled to risk: one line for a low-risk change. |
@@ -142,8 +142,8 @@ You invoke these directly.
 
 | Area | Skills |
 |---|---|
-| Root entry point | **`minime-agent-orchestrator`** |
-| Start and orient | `minime-project-inception`, `minime-project-orient`, `minime-project-reassessment` |
+| Root entry point | **`minime`** |
+| Start and orient | `minime-project-inception`, `minime-orient`, `minime-project-reassessment` |
 | Define | `minime-requirements-manager`, `minime-project-spec` |
 | Plan and route | `minime-implementation-step-selector`, `minime-replan`, `minime-course-correction-triage`, `minime-plan-review` |
 | Build and fix | `minime-systematic-debugging`, `minime-code-reviewer` |

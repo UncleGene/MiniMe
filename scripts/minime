@@ -797,14 +797,16 @@ def _host_registration_audit(host_skills_root: Path, root: Path) -> dict:
                     })
             checked_skills.append(check)
 
-        for path in sorted(resolved_host_root.glob("minime-*")):
+        for path in sorted(resolved_host_root.glob("minime*")):
             if path.name in skill_names:
+                continue
+            if path.name != "minime" and not path.name.startswith("minime-"):
                 continue
             findings.append(
                 {
                     "type": "host-skill-extra",
                     "path": path.as_posix(),
-                    "detail": "Registered minime-* skill is not in the target-reusable manifest.",
+                    "detail": "Registered minime or minime-* skill is not in the target-reusable manifest.",
                     "severity": "blocked",
                 }
             )
@@ -936,7 +938,10 @@ def _transparent_audit_repo(target_repo: Path, root: Path) -> dict:
                         "severity": "blocked",
                     }
                 )
-            copied = sorted(name for name in skill_names if name.lower() in lower)
+            # The bare "minime" skill name is already covered by the
+            # minime-reference substring finding above.
+            copied = sorted(name for name in skill_names
+                            if name.lower() != "minime" and name.lower() in lower)
             if copied:
                 findings.append(
                     {
@@ -1421,7 +1426,7 @@ def command_skills_install(args: argparse.Namespace) -> int:
 # Transcript audit (Decision 10): on-demand, read-only scan of local host
 # transcripts for MiniMe skill use and observable contract misfires. Reports
 # use placeholders only: no paths, project names or message text.
-SKILL_NAME = r"minime-[a-z]+(?:-[a-z]+)*"
+SKILL_NAME = r"minime(?:-[a-z]+)*"
 SLASH_SKILL_RE = re.compile(rf"<command-name>/?({SKILL_NAME})</command-name>")
 INJECTED_SKILL_RE = re.compile(rf"<skill>\s*<name>({SKILL_NAME})</name>")
 DOLLAR_SKILL_RE = re.compile(rf"\$({SKILL_NAME})\b")

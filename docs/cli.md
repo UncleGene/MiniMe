@@ -63,14 +63,14 @@ Behavior:
   (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
   `~/.copilot/skills`).
 - Use `--skills-root` to audit a specific surface.
-- Verifies every `target-reusable` skill has a host-level `minime-*` wrapper
+- Verifies every `target-reusable` skill has a host-level wrapper
   directory containing a regular installed `SKILL.md` file and
   `agents/openai.yaml`.
 - Verifies installed `SKILL.md` content matches the matching MiniMe skill file,
   and that installed `references/` holds exactly the source references.
 - Blocks symlinked `SKILL.md` wrappers because current Codex user-skill
   discovery does not load them.
-- Blocks extra `minime-*` host entries that are not in the target-reusable
+- Blocks extra `minime` or `minime-*` host entries that are not in the target-reusable
   manifest.
 - Requires generated metadata to match MiniMe's canonical output, including
   display name, short description and default prompt. Metadata links/nonfiles
@@ -93,7 +93,7 @@ Behavior:
 - Reads `~/.claude/projects` and `~/.codex/sessions` (override with
   `--claude-root` / `--codex-root`); OpenCode and Copilot are not parsed.
 - Counts MiniMe skill loads per skill: slash commands, Skill-tool calls,
-  injected `<skill>` blocks, `$minime-*` mentions and reads of a `SKILL.md`.
+  injected `<skill>` blocks, `$minime*` mentions and reads of a `SKILL.md`.
 - Flags, once per turn: `no-next-action`, `next-action-unformatted`,
   `prose-question` (Claude only), `commit-unverified` (no test or check command
   before the commit in that turn) and `commit-without-commit-skill`.
@@ -232,7 +232,7 @@ Behavior:
   the commit (exit 2, with a message to the agent) when the session has loaded
   a MiniMe skill but the current turn has not loaded `minime-project-commit` or
   `minime-self-commit`. Loads count through the Skill tool, a slash command, an
-  injected `<skill>` block or `$minime-*` mention (Codex), or a Read or
+  injected `<skill>` block or `$minime*` mention (Codex), or a Read or
   `cat`/`sed`-style read of the skill's `SKILL.md` that starts a shell segment.
   A Codex turn starts at its `task_started` event. Detection is textual: a
   command that contains a complete read command as data, such as a heredoc,
@@ -344,9 +344,9 @@ Dry-run preflight check for skill installation. Accepts a skill directory or a
 direct `SKILL.md` path:
 
 ```sh
-scripts/minime skills install-check skills/minime-agent-orchestrator
-scripts/minime skills install-check skills/minime-agent-orchestrator/SKILL.md
-scripts/minime skills install-check skills/minime-agent-orchestrator --json
+scripts/minime skills install-check skills/minime
+scripts/minime skills install-check skills/minime/SKILL.md
+scripts/minime skills install-check skills/minime --json
 ```
 
 Behavior:
@@ -367,7 +367,7 @@ against a source `SKILL.md`. Used during the generalization workflow to surface
 existing analogs before adapting an external skill.
 
 ```sh
-scripts/minime skills similar skills/minime-agent-orchestrator
+scripts/minime skills similar skills/minime
 scripts/minime skills similar /path/to/other/skills/debugger/SKILL.md
 scripts/minime skills similar /path/to/other/skills/debugger --json
 ```
