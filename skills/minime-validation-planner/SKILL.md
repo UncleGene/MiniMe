@@ -38,6 +38,11 @@ Confirm each applies and has a test case:
 - Strict type checks for changed typed code.
 - Verification that broad catches surface actionable failures and do not
   hide data loss, auth failures, or contract violations.
+- Tests that need an external tool or service fail, not skip, in the
+  environment that gates release, so a missing tool cannot pass the gate.
+- Each new safety test has a recorded mutation check: break the guarded
+  behavior and confirm the test fails (the red-green cycle in
+  `minime-verification-gate`).
 
 ## Procedure
 
@@ -69,6 +74,8 @@ Confirm each applies and has a test case:
 - Release gates (checklist of required passes)
 - Quality guard review result
 - Missing coverage (blocking gaps with remediation)
+- Mutation check per new safety test: the planned break, and its result once
+  run
 - Test commands to run
 
 ## Interaction rules

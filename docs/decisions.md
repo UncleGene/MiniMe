@@ -44,12 +44,17 @@ current position.
   obligations without a current need.
 - Consequences: validation targets the verified hosts and representative
   tasks; installation correctness and reproducible checks remain required.
-- Amendment (2026-10-30): the individual is assumed to be on a budget,
-  typically the least expensive plan of each host (Claude, ChatGPT, and
-  potentially other CLIs or agents), so quality evidence must eventually
-  cover a cheapest-plan configuration, not only the maintainer's. Review
-  detection was measured there on 2026-10-30: Claude Code passes, and Codex
-  on `gpt-6-luna` is an accepted exception (plan, Review baseline). MiniMe's
+- Amendment (2026-10-30, extended 2026-10-31): the individual is assumed to
+  be on a budget plan of each host (Claude, ChatGPT, and potentially other
+  CLIs or agents), so quality evidence must eventually cover each budget
+  configuration, not only the maintainer's. On Claude Code that means two
+  session models: Opus 5.5, which the Pro plan includes (it has no Fable) and
+  which the Max plan falls back to at its Fable cap (currently half the plan
+  quota); and Fable, on the Max plan until then. On Codex it means
+  `gpt-6.1-sol`, which the cheapest ChatGPT plan with Codex includes; the
+  cheaper `gpt-6-luna` fails review detection and is not a budget
+  configuration. Review detection passes on both hosts' budget
+  configurations (plan, Review baseline). MiniMe's
   own complexity is a standing risk to this audience: it must stay reliable
   and maintainable without taxing target-project progress or expense. The
   DRY/YAGNI invariants, `minime-design-simplifier` passes and the plan's
@@ -161,8 +166,10 @@ current position.
 - Context: misfires are hard to see: a skill can load and skip a step, or not
   load at all, without visible failure.
 - Decision: an on-demand, read-only `transcript-audit` command parses local
-  Claude Code and Codex transcripts for MiniMe skill loads, token cost and
-  observable contract misfires. Nothing is collected automatically, stored or
+  Claude Code and Codex transcripts for MiniMe skill loads, token counts and
+  observable contract misfires. Pricing and cost per gated change are
+  maintainer-local tooling, not published (amended 2026-11-07): they serve
+  only MiniMe's own development. Nothing is collected automatically, stored or
   sent; reports use placeholders (Decision 8).
 - Alternatives: scripted scenario runs on a sample repo (costly and
   artificial).
@@ -245,8 +252,9 @@ current position.
   host's subagent, model, effort and headless command.
 - Alternatives: portable prose only (each session guesses the mapping); drop
   `model_tier` (leaves the cost goal without a lever).
-- Consequences: the installer grows, and tier mappings, like the audit's
-  list-price table, must keep pace with new models and prices. A fresh-context skill only forks when its caller invokes it through
+- Consequences: the installer grows, and tier mappings, like the
+  maintainer's local list-price table, must keep pace with new models and
+  prices. A fresh-context skill only forks when its caller invokes it through
   the host's skill mechanism; reading its file runs it inline.
 - Current scope: `minime-code-reviewer` and `minime-doc-check` declare
   `model_tier: fast` and `minime_context: fresh`. Into `~/.claude/skills` the
@@ -272,7 +280,8 @@ current position.
   the questions its other scopes ask); fork one scope through new installer
   metadata (a new adapter mechanism for one caller). Cost: one more skill to
   install and keep in step. Keep the fork only if priced cost per gated change
-  falls and the misfire counts do not rise.
+  falls and the misfire counts do not rise. Measured 2026-10-31: both held, so
+  the fork stays (plan, Cost baseline).
 
 ## Decision 15 — One CLI or agent per session
 

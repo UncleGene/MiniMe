@@ -184,19 +184,18 @@ on-demand, read-only command scans local host transcripts for MiniMe skill loads
 and observable contract misfires, reporting placeholders only.
 
 Acceptance: `TranscriptAuditCLITests` pass: skill loads are counted for each
-load path; each finding type fires on a synthetic transcript; slop-scan and
-blocking-review gate blocks are counted; review-eval runs are excluded;
-`--since` filters; transcripts are unchanged; no path or message text appears
-in the report.
+load path; each finding type fires on a synthetic transcript; review-eval runs
+are excluded; `--since` filters; transcripts are unchanged; no path or message
+text appears in the report.
 
 Links: Decisions 8/10; REQ-001/003/006.
 
 ## REQ-010 — Cost-appropriate execution
 
-Status: active; token measurement, including per-model usage of each gated
-commit turn and its subagents, and list-price cost implemented; Claude Code
-review and doc check run forked on the fast tier; intake and questions scale with
-one risk scale (Decision 16); other routing pending.
+Status: active; Claude Code review and doc check run forked on the fast tier;
+intake and questions scale with one risk scale (Decision 16); model and effort
+routing accepted 2026-11-01; scale-to-risk accepted 2026-11-07. Cost is
+measured with the maintainer's local tooling, not published (Decision 10).
 Type: core. Priority: high.
 
 Skills run each step at the lowest-cost model, effort level and context that
@@ -207,12 +206,13 @@ work. Gates that need no main-session context run in a fresh context where the
 host allows it and it costs less. Ceremony scales with the risk of the change.
 Cost never ranks above quality (Decision 1).
 
-Acceptance: an on-demand transcript report gives the tokens and model for each
-MiniMe skill flow on each verified host, with counts only and no message text
-(Decision 8). Each skill's declared tier reaches the host through a generated
-adapter (Decision 14). A routing change is accepted only if the priced cost per
-gated change, main context plus the subagents it starts, falls and fixture
-detection holds.
+Acceptance: the maintainer's local transcript report gives the tokens, model
+and list-price cost for each MiniMe skill flow and gated change on each
+verified host, with counts only and no message text (Decision 8); the published
+`transcript-audit` reports token counts without cost. Each skill's declared
+tier reaches the host through a generated adapter (Decision 14). A routing
+change is accepted only if the priced cost per gated change, main context plus
+the subagents it starts, falls and fixture detection holds.
 
 Links: Decisions 1/9/10/14/16; REQ-003/007/009; TranscriptAuditCLITests.
 

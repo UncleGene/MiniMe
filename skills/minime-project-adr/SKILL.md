@@ -18,8 +18,11 @@ Do not delete or overwrite existing decisions; always supersede.
 
 ## Procedure
 
-1. Find any existing decision this supersedes; mark it superseded and add a
-   Superseded By pointer.
+1. Read every earlier decision that governs the same behavior, not only the
+   one this may supersede, and state for each whether the new decision
+   supersedes it or is compatible with it. Mark a superseded one and add a
+   Superseded By pointer; stop on a conflict the new decision does not
+   supersede.
 2. Assign the next sequential ID.
 3. Draft the decision with the required fields below. Context must name the
    pressure, constraint, or tradeoff that forced the decision. Consequences

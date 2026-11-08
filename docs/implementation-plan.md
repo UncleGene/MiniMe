@@ -22,10 +22,17 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
   alone (REQ-011).
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
-- `transcript-audit` reports skill loads, tokens and their list-price cost
-  (also per gated commit turn, including its subagents), slop-scan and
-  blocking-review gate blocks, and observable contract misfires from local
-  transcripts, excluding `review-eval` runs.
+- `transcript-audit` reports skill loads, token counts and observable contract
+  misfires from local transcripts, excluding `review-eval` runs. Pricing and
+  cost per gated commit are measured with the maintainer's local tooling, which
+  is not published (Decision 10).
+- Model and effort routing was accepted on 2026-11-01: review runs on the
+  declared tier on both verified hosts, cost per gated change fell, fixture
+  detection held, misfire rates fell, and cost per gated commit is measured per
+  budget configuration (cost baseline below).
+- Scale ceremony to risk was accepted on 2026-11-07 (measurements under Cost
+  baseline): detection held on both hosts, cost per unit of work held or fell,
+  and misfires showed no clear rise.
 - Full test, lint, type, documentation and review gates must pass before every
   commit. Commands are in [the developer guide](development.md).
 
@@ -45,19 +52,21 @@ Hard tier on a cheaper model:
 | Claude Code / Sonnet 5.5 | 6/6 | 0/1 |
 | Codex / gpt-6-luna | 5/6 (missed `hard-buried-boundary`) | 1/1 (CSV formula injection, debatable) |
 
-Budget configuration (Decision 2 amendment of 2026-10-30), 2026-10-30. On
-Claude Code the reviewer forks to Sonnet 5.5 whatever the session model, so
-the forked result below covers a cheapest-plan session. On Codex the reviewer
-runs on the session model. `gpt-6-luna` on all fixtures missed
-`swallowed-error` and `hard-vacuous-test`; a standard-tier rerun, made for two
-unparsed replies, found `swallowed-error`, which does not change the full
-run's result. Across its three runs `luna` missed three different defects
-(with `hard-buried-boundary` above) and flagged the CSV formula-injection
-control on both hard runs. This fails the pass threshold. The user accepted it
-as an exception on 2026-10-30, for Codex on `gpt-6-luna` only: the scattered
-misses suggest model capacity rather than a reviewer gap a checklist would
-close. Rerun it when the reviewer, a profile or the Codex budget model
-changes; the exception ends when that run passes.
+Budget configuration (Decision 2 amendment of 2026-10-30), 2026-10-30. The
+budget audience spans two Claude Code session models: Opus 5.5, on the Pro
+plan (which includes Opus but not Fable) and on the Max plan after its Fable
+cap (currently half the plan quota) trips; and Fable, on the Max plan until
+then. Cost and detection must hold on both. On Claude Code the reviewer forks
+to Sonnet 5.5 whatever the session model, so the forked result below covers
+both; the local cost tooling separates them by session model. On
+Codex the reviewer runs on the session model, and the cheapest ChatGPT plan
+with Codex includes `gpt-6.1-sol`, which passes (table above), so it is
+Codex's budget configuration. `gpt-6-luna` is not: across three runs on all
+fixtures it missed three different defects (`swallowed-error`,
+`hard-vacuous-test`, `hard-buried-boundary`) and flagged the CSV
+formula-injection control on both hard runs, failing the pass threshold. The
+scattered misses suggest model capacity rather than a reviewer gap, so a luna
+session weakens its own commit gate; README's Known Limits warns users.
 
 With the installed adapter, Claude Code's reviewer forked on Sonnet 5.5 found
 20/20 defects across both tiers, with 0/3 control false positives and 1/1
@@ -81,16 +90,75 @@ change.
 
 Cost and misfire baselines come from the maintainer's local transcripts; the
 raw transcript and review reports are never committed (Decision 8), while the
-plan records their aggregates. Compare `transcript-audit` runs of the same
-host over time; a cheaper routing must not raise the misfire counts.
+plan records their aggregates. Compare runs of the same host over time; a
+cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Measure the forked `minime-doc-check` as the reviewer fork was measured: after
-enough gated commit turns, compare priced cost per gated commit turn, main
-context plus subagents, and the misfire counts with the turns before the fork
-(Decision 14 amendment of 2026-10-25). Keep the fork if cost falls and misfires
-do not rise; otherwise fold the audit back into `minime-doc-sync`.
+Make the question rules stick (chosen on 2026-11-07). Drop the six per-option
+orchestration ratings the `minime` skill adds, which duplicate
+`minime-decision-prompt`'s pros, cons, cost and lock-in. In Claude Code, have
+the agent hooks block a choice-UI call that asks more than one question, and
+send a MiniMe turn that ends on a prose question back to the choice UI. Of 187
+choice-UI calls in 32 MiniMe sessions from 2026-11-01 to 2026-11-07, 11 asked
+two or more questions and 80 came in a turn that had not loaded
+`minime-decision-prompt` (an upper bound: an earlier turn's copy may still be
+in context). Codex keeps the wording only.
+
+## Cost baseline
+
+The local cost tooling attributes each gated turn to its session model, the
+main-context model that wrote most of its output. List price, subagents
+included, through 2026-11-01:
+
+| Session model | Window from | Gated turns | Median | Mean |
+|---|---|---|---|---|
+| Claude Code, Opus 5.5 (Pro; Max after the Fable cap) | 2026-10-25 | 113 | $1.19 | $1.88 |
+| Claude Code, Fable 5.1 (Max) | 2026-10-25 | 19 | $4.69 | $5.27 |
+| Codex, `gpt-6.1-sol` | 2026-10-01 | 69 | $0.78 | $1.21 |
+
+Claude Code's window starts at the doc-check fork; Codex's is longer, because
+that Claude-only fork does not affect it. One more Codex turn had no token data
+and counts as `unknown`. The Codex row was recounted on 2026-11-07, once the
+audit read the `.jsonl.zst` files Codex compresses older rollouts into; it
+first showed 12 turns at $1.59 ($2.41). The Fable row merges 13 Fable 5.1 turns
+from nine short single-model sessions with 6 earlier Fable 5 turns, repriced at
+Fable 5.1's list price (the two differ only in cache-read price): the models
+are of similar capability and Fable 5.1 is the current one. The merge used a
+one-off run; the tooling itself still reports the two models apart. Fable 5.1
+alone shows a $4.69 median over its 13 turns.
+
+Scale ceremony to risk was measured from 2026-11-01 to 2026-11-07 and accepted.
+Claude Code's raw cost per gated commit rose (Opus 5.5 median $1.18 to $2.27,
+59 turns; Fable 5.1 fell to $3.86 over 14), but each turn ran about 2.5 times
+the shell commands (median 9 to 24), and cost per command held: Opus median
+$0.120 against $0.122 ($0.105 without a test-less content repo), and $0.111
+against $0.102 in the one project with Opus turns in both windows. Codex fell
+to a median $0.24 over 12 turns ($0.015 per command against $0.035), accepted
+below the ~15-turn target because Codex use was paused.
+
+Misfires: without the content repo, Claude Code `commit-unverified` was 14 in
+127 MiniMe turns before and 10 in 65 after, and `no-next-action` 3 and 3,
+within chance at these counts; the content repo added 26 `commit-unverified`
+flags, none a commit of edited code without a check. Codex showed
+`no-next-action` 1 and `commit-unverified` 0 in 55 MiniMe turns (18 of them
+copies a resumed session writes again), against 2 and 0 in 21 before.
+
+`review-eval` matched the review baseline on both hosts on 2026-11-07. Its
+first Claude Code run left 12 of 23 replies unparsed: the installed `Stop` hook
+made each review that ended on its JSON block add a next-action reply, which
+`claude -p` printed in place of the review. Eval runs now disable installed
+hooks.
+
+The forked `minime-doc-check` was measured on 2026-10-31 (Claude Code, list
+price, main context plus subagents, means, because the audit then reported
+only totals; the reviewer-fork medians below are not directly comparable).
+Before the fork (2026-10-01 to 10-25),
+66 gated commit turns averaged $4.99. After it, 114 turns averaged $2.29.
+Claude Code `no-next-action` misfires fell from 25 in 101 MiniMe turns to 3 in
+135. The fork stays (Decision 14 amendment of 2026-10-25). The fall is not
+the fork's alone: the `Stop` hook (Decision 13), the move to Opus 5.5's lower
+price and Fable sessions all landed in the same window.
 
 `no-next-action` misfires on Claude Code rose from 3 in the 31 MiniMe turns
 before the reviewer fork to 20 in the 37 after it. With the `Stop` hook
@@ -116,21 +184,8 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Model and effort routing | Claude Code review forks on the fast tier and stays (measured above). Tiers were re-derived on 2026-10-20 (Decision 14 amendment); stale-doc fixtures passed on the fast tier and `minime-doc-check` now forks, on probation until its cost is measured; next, measure it (REQ-010, Decision 14). Every routing change, including a cheaper model or effort level, needs a feasibility and benefit check first: what it saves, measured, against the detection it risks (Decision 15). Budget-configuration detection is measured (above): Claude Code passes; Codex on `gpt-6-luna` is an accepted exception. Cost per gated commit on a cheapest-plan session is not yet measured. | Transcripts show review running on the declared tier on each verified host; priced cost per gated change, main context plus subagents, falls; fixture detection holds; misfire counts do not rise; cost per gated commit is reported for a cheapest-plan session on each verified host. |
-| Scale ceremony to risk | Implemented: intake and questions scale with one risk scale, `minime-decision-prompt` explains new mechanisms and costs before the options (Decision 16), and `minime-implementation-step-selector` delegates the gate chain to `minime-project-commit` instead of restating it (REQ-010). Next, measure. | Cost and detection measurements do not regress. |
+| Question rules stick | Drop the duplicate orchestration ratings; Claude Code hooks block multi-question choice-UI calls and bounce prose questions (next step above). | Hook tests pass; after install, `transcript-audit` shows no multi-question calls and fewer `prose-question` findings. |
 | More stack profiles (lower priority) | Profiles and fixtures in order of recorded demand: sessions outside MiniMe and review-eval whose review reported the stack uncovered, counted on 2026-10-25. Ruby with Rails and ERB first (18 and 17 sessions), then Lua (16), then JavaScript (10). TypeScript (3), React and Vitest (0) wait until the warnings show demand; their marker rows in `stacks.md` stay so the warnings keep counting (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
-
-## Temporary instrumentation
-
-These `transcript-audit` outputs gather evidence for open milestones and are
-removed, with their tests and docs, when the condition holds. The agent hooks,
-`review-eval` and the misfire findings are lasting functionality and stay.
-
-| Output | Serves | Remove when |
-|---|---|---|
-| Cost per gated commit turn, main context plus subagents | Model and effort routing | That milestone is accepted |
-| Slop-scan and blocking-review gate-block counts | Judging the reviewer fork by its blocks | Model and effort routing is accepted |
-| Tokens and list-price cost per skill and per model/effort | Model and effort routing; Scale ceremony to risk | Both milestones are accepted |
 
 ## Plan maintenance
 
@@ -139,3 +194,10 @@ implementation. Remove a milestone when it is done; its result belongs in the
 current-state list above. Change decisions in place in
 [decisions](decisions.md). No separate state pin or traceability matrix is
 used.
+
+Costing and evaluation track the hosts' published models and must be
+refreshed when they change: add a new model's published list price to the
+maintainer's local cost tooling (its unpriced-models line is the signal; never
+guess a price), and when a verified host's default or
+budget model changes, rerun the review-eval baseline on it and update the
+baseline tables above (Decision 15).

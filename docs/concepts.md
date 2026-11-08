@@ -106,14 +106,13 @@ Audit each surface explicitly. Check fresh discovery when diagnosing host setup
 or compatibility; registration alone does not prove execution.
 
 `transcript-audit` parses local Claude Code and Codex transcripts on demand. It
-reports token counts by host, context (main or subagent), model and effort,
-skill and gated commit turn, priced from a dated list-price table, plus
-slop-scan and blocking-review gate blocks (REQ-010). It excludes `review-eval`
-runs. Its findings are heuristics about observable contract markers (next
-action, choice UI, checks before commit, commit skill loaded); they cannot show
-whether a skill's judgment was right. Unknown record shapes are skipped, so a
-host format change shows up as falling counts rather than errors.
-Links: REQ-009/010; Decision 10.
+reports skill loads and token counts by host and context (main or subagent).
+Cost per gated change is measured with the maintainer's local, unpublished
+tooling (REQ-010). It excludes `review-eval` runs. Its findings are heuristics
+about observable contract markers (next action, choice UI, checks before
+commit, commit skill loaded); they cannot show whether a skill's judgment was
+right. Unknown record shapes are skipped, so a host format change shows up as
+falling counts rather than errors. Links: REQ-009/010; Decision 10.
 
 `review-eval` runs the installed reviewer, or `minime-doc-check`, headlessly on
 planted-defect fixtures in temporary git repos. It scores detection, false

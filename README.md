@@ -40,7 +40,7 @@ project you may later share or open-source fit to show.
     recommended next action.
 - **Audits**: check host registration, confirm a project carries no MiniMe
   trace, and scan your local agent transcripts for skill misfires and token
-  cost. Nothing is collected or sent anywhere.
+  counts. Nothing is collected or sent anywhere.
 
 ## Installation
 
@@ -175,7 +175,7 @@ scripts/minime host-registration-audit --skills-root ~/.codex/skills --json
 # Does a project carry any MiniMe trace?
 scripts/minime transparent-audit --repo /path/to/project --json
 
-# Did agents skip skill steps, and what did MiniMe turns cost?
+# Did agents skip skill steps?
 scripts/minime transcript-audit --since 2026-01-01
 ```
 
@@ -193,7 +193,9 @@ Its findings are heuristics; verify one before acting on it.
   Claude Code runs the reviewer on Sonnet whatever your session model. Codex
   runs it on your session model: on the cheaper `gpt-6-luna`, review missed
   one or two planted defects in twenty per run, where the default model
-  missed none, so a commit gate on that model can pass a defect.
+  missed none, so a commit gate on that model can pass a defect. Even the
+  cheapest ChatGPT plan with Codex includes `gpt-6.1-sol`; use it for
+  MiniMe work.
 - `transparent-audit` detects MiniMe references, skill names and symlinks; it
   does not detect renamed copies of skill text.
 - `skills install --write`, `git-hook install|uninstall --write` and

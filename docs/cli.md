@@ -81,7 +81,7 @@ Behavior:
 ### `scripts/minime transcript-audit`
 
 On-demand, read-only scan of local Claude Code and Codex transcripts for MiniMe
-skill use, token cost and observable contract misfires (Decision 10).
+skill use, token counts and observable contract misfires (Decision 10).
 
 ```sh
 scripts/minime transcript-audit
@@ -91,39 +91,20 @@ scripts/minime transcript-audit --since 2026-10-07 --json
 Behavior:
 
 - Reads `~/.claude/projects` and `~/.codex/sessions` (override with
-  `--claude-root` / `--codex-root`); OpenCode and Copilot are not parsed.
+  `--claude-root` / `--codex-root`), including the `.jsonl.zst` files Codex
+  compresses older rollouts into; OpenCode and Copilot are not parsed.
 - Counts MiniMe skill loads per skill: slash commands, Skill-tool calls,
   injected `<skill>` blocks, `$minime*` mentions and reads of a `SKILL.md`.
 - Flags, once per turn: `no-next-action`, `next-action-unformatted`,
   `prose-question` (Claude only), `commit-unverified` (no test or check command
-  before the commit in that turn) and `commit-without-commit-skill`.
-- Reports token counts (`input`, `cache_read`, `cache_write`, `output`) and
-  their list-price cost (`cost_usd_micros`, millionths of a dollar):
-  - per host, split between the main context and subagent transcripts
-    (Claude Code only; Codex sessions all count as main);
-  - for MiniMe turns, by `model/effort`;
-  - per skill, summed over the turns that loaded it;
-  - per host, for gated commit turns (main-context turns that loaded a commit
-    skill and ran `git commit`), by `model/effort`, including the Claude Code
-    subagents each turn started (REQ-010).
-
-  Cost prices each request from a dated table in `scripts/minime` of published
-  API list prices, which stand in for plan quota. The table covers each token
-  type, Claude Code's 5-minute and 1-hour cache writes, and the prompt-size
-  tiers of Claude Haiku 5.5 (over 100K) and the OpenAI models (over 272K).
-  Models missing from the table, and Claude fast mode or non-global routing,
-  cost 0 and are listed per host as `unpriced_models`; update the table when
-  prices or models change.
-
-  A turn that loads several skills counts toward each one, so per-skill totals
-  overlap. A turn is one user prompt and all the work that follows it, so the
-  figures attribute cost coarsely. Claude Code turns and Codex tasks also differ
-  in size, so compare a host with itself over time, not with the other host.
-  Claude Code records that repeat a message's usage are counted once; Codex
-  usage comes from increases in its cumulative totals.
-- Counts gate blocks per host: slop-scan blocks in the output of a commit
-  command, and turns with a blocking `Verdict: fix` or `Verdict: route` line; a
-  forked review counts once, on the main turn that started it.
+  earlier in the turn or since the previous commit) and
+  `commit-without-commit-skill`.
+- Reports token counts (`input`, `cache_read`, `cache_write`, `output`) per
+  host, split between the main context and subagent transcripts (Claude Code
+  only; Codex sessions all count as main). Claude Code records that repeat a
+  message's usage are counted once; Codex usage comes from increases in its
+  cumulative totals. Pricing, and cost per gated change, are measured with the
+  maintainer's local tooling, which is not published (REQ-010).
 - Excludes `review-eval` runs, recognized by a prompt that starts with the
   review-eval prompt, and the subagents they fork; their count is reported per
   host.
@@ -162,8 +143,9 @@ Behavior:
   copies each base and overlay into a temporary git repo, so the change is the
   uncommitted diff. It then runs one review per fixture, in parallel (`--jobs`,
   default 4):
-  - Claude Code: `claude -p`, restricted to read, search, skill and `git diff`
-    tools.
+  - Claude Code: `claude -p` with installed hooks disabled, restricted to read,
+    search, skill and `git diff` tools. A `Stop` hook's added reply would
+    otherwise replace the review as the printed result.
   - Codex: `codex exec -s read-only --ephemeral`.
 
   Every run spends host plan quota, and fixture files are never modified.
