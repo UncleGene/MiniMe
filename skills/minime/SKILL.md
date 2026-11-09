@@ -37,7 +37,10 @@ and produce a structured orchestration summary.
    completion gates, handoff need, structured output, and continuation menu.
    Mark each item `pending`, `pass`, `blocked`, or `not-configured` with one
    evidence sentence. Use `not-configured` when the active project guide lacks
-   the contract needed to run that item; do not silently skip it.
+   the contract needed to run that item; do not silently skip it. Start the
+   ledger with a line `Ledger:`. After a compaction this skill is still in
+   force: re-read it and write the ledger before continuing; in Claude Code an
+   installed hook requires it.
 1. Check whether a reflection is due before routing. If the session has 3+
    commits since the last reflection, or a prior multi-skill chain completed
    without a reflection, trigger a reflection now. Examine the session for
@@ -52,7 +55,9 @@ and produce a structured orchestration summary.
    friction, a correction, or a quality concern, apply
    `minime-course-correction-triage` at the risk tier it picks before routing.
    Record the improvement classification (local-project | reusable-skill |
-   both | no action) in the output. Do not skip this step.
+   both | no action) in the output. Do not skip this step. A question such as
+   "is there a way to…?" whose answer would change tracked files is a change
+   request, not an informational question: triage it the same way.
 4. Identify the minimal affected docs and code areas.
 5. Invoke the appropriate skill chain for the current phase or request type.
    When routing leads to implementation (`minime-implementation-step-selector`):
@@ -145,13 +150,9 @@ change final product requirements. Record the rationale and continue.
 
 When human input is required, delegate to `minime-decision-prompt` — read its
 skill file and follow its procedure. This skill does not own question shape and
-must not render the question itself. Pass 2-4 concrete options and, for each,
-the orchestration ratings this skill adds on top of the decision-prompt shape:
-future-proof rating, one-way-door risk, complexity, safety and regression risk,
-roadmap impact, and progress impact (High/Medium/Low each). Rate one-way-door
-risk at least Medium for an option that adds a tracked doc or edits the
-project guide, and High when the repo is public or the change leaves the repo. Mark
-the recommended option explicitly.
+must not render the question itself. Pass 2-4 concrete options and mark the
+recommended one; the decision-prompt shape carries each option's pros, cons,
+cost and lock-in.
 
 ## Skeptic pass
 

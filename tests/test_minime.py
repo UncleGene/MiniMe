@@ -1439,6 +1439,8 @@ class AgentHookCLITests(unittest.TestCase):
     """Decision 13: user-level Claude Code and Codex hooks that gate agent commits."""
 
     GATE = REPO_ROOT / "scripts" / "commit-gate"
+    # The light-tier checks first, then the reviewer, which only the full tier needs.
+    CHECKS = ("minime-doc-sync", "minime-scope-boundary", "minime-code-simplifier", "minime-code-reviewer")
     HOSTS = {"claude": ".claude/settings.json", "codex": ".codex/hooks.json"}
 
     def _minime(self, home: Path, host: str, *args: str) -> subprocess.CompletedProcess:
@@ -1469,7 +1471,8 @@ class AgentHookCLITests(unittest.TestCase):
             installed = json.loads(settings.read_text())
             self.assertEqual(installed["model"], "x")
             ours = [{"type": "command", "command": str(gate)}]
-            self.assertEqual(installed["hooks"]["PreToolUse"], [other, {"matcher": "Bash", "hooks": ours}])
+            matcher = "Bash|AskUserQuestion" if host == "claude" else "Bash"
+            self.assertEqual(installed["hooks"]["PreToolUse"], [other, {"matcher": matcher, "hooks": ours}])
             self.assertEqual(installed["hooks"]["Stop"],
                              [other_stop, {"hooks": ours}] if host == "claude" else [other_stop])
             result = self._minime(home, host, "uninstall", "--write")
@@ -1477,7 +1480,7 @@ class AgentHookCLITests(unittest.TestCase):
             self.assertEqual(json.loads(settings.read_text()), original)
             self.assertFalse(gate.parent.exists())
 
-    def test_reinstall_adds_the_stop_hook_to_an_earlier_install(self):
+    def test_reinstall_upgrades_an_earlier_install(self):
         with tempfile.TemporaryDirectory() as d:
             home = Path(d)
             settings = home / ".claude" / "settings.json"
@@ -1488,7 +1491,24 @@ class AgentHookCLITests(unittest.TestCase):
             result = self._minime(home, "claude", "install", "--write")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(settings.read_text())["hooks"], {
-                "PreToolUse": [{"matcher": "Bash", "hooks": ours}], "Stop": [{"hooks": ours}]})
+                "PreToolUse": [{"matcher": "Bash|AskUserQuestion", "hooks": ours}], "Stop": [{"hooks": ours}],
+                "SessionStart": [{"matcher": "compact", "hooks": ours}]})
+
+    def test_reinstall_keeps_a_customized_or_shared_matcher(self):
+        other = {"type": "command", "command": "/bin/true"}
+        for name, entry in (("customized", {"matcher": "Bash|Edit", "hooks": None}),
+                            ("shared", {"matcher": "Bash", "hooks": [other]})):
+            with self.subTest(name), tempfile.TemporaryDirectory() as d:
+                home = Path(d)
+                settings = home / ".claude" / "settings.json"
+                settings.parent.mkdir()
+                gate = home / ".config" / "minime" / "claude-hooks" / "commit-gate"
+                entry = {**entry, "hooks": [{"type": "command", "command": str(gate)}, *(entry["hooks"] or [])]}
+                settings.write_text(json.dumps({"hooks": {"PreToolUse": [entry]}}))
+                result = self._minime(home, "claude", "install", "--write")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("kept the customized PreToolUse matcher", result.stdout)
+                self.assertEqual(json.loads(settings.read_text())["hooks"]["PreToolUse"], [entry])
 
     def test_refuses_unreadable_settings(self):
         for content in ("{not json", '{"hooks": {"Stop": {}}}'):
@@ -1519,19 +1539,33 @@ class AgentHookCLITests(unittest.TestCase):
         skill = {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "name": "Skill", "input": {"skill": "minime-project-commit"}}]}}
         done = "Committed.\n\nRecommended next action: run the audit."
+        asked = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "AskUserQuestion", "input": {"questions": []}}]}}
+        ask = "Should I push?\n\nRecommended next action: push after review."
+        question = "choice UI"
+        not_last = [
+            "> Should I push?", "### Why?", "| a | b? |", "a | b?", "~~~\nwhy?\n~~~",
+            "Is it fine? Yes, the tests cover it.", "Should I push?\n\nNo: the remote is protected."]
         cases = [
             ("no MiniMe skill in the turn", [user("go"), reply("Done.")], False, 0),
+            ("ends on a prose question", [user("go"), skill, reply(ask)], False, 2, question),
+            ("prose question after the choice UI", [user("go"), skill, asked, reply(ask)], False, 0),
+            ("bold question line", [user("go"), skill, reply("**Ship it?**\n\nRecommended next action: ship it.")], False, 2, question),
+            *[(f"not a closing prose question: {text!r}", [user("go"), skill, reply(f"{text}\n\n{done}")], False, 0)
+              for text in not_last],
+            ("question while continuing from this hook", [user("go"), skill, reply(ask)], True, 0),
             ("skill only in an earlier turn", [user("go"), skill, reply(done), user("thanks"), reply("Sure.")],
              False, 0),
             ("turn ends with a next action", [user("go"), skill, reply(done)], False, 0),
-            ("turn ends without one", [user("go"), skill, reply(done), reply("Tests pass; not pushed.")], False, 2),
+            ("turn ends without one", [user("go"), skill, reply(done), reply("Tests pass; not pushed.")], False, 2,
+             "Recommended next action:"),
             ("only a subagent wrote it", [user("go"), skill, reply("Summary."), reply(done, sidechain=True)],
-             False, 2),
+             False, 2, "Recommended next action:"),
             ("already continuing from this hook", [user("go"), skill, reply("Summary.")], True, 0),
         ]
         with tempfile.TemporaryDirectory() as d:
             transcript = Path(d) / "t.jsonl"
-            for name, records, active, code in cases:
+            for name, records, active, code, *named in cases:
                 with self.subTest(name):
                     transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
                     event = {"hook_event_name": "Stop", "stop_hook_active": active,
@@ -1539,8 +1573,140 @@ class AgentHookCLITests(unittest.TestCase):
                     result = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
                                             capture_output=True, text=True)
                     self.assertEqual(result.returncode, code, result.stderr)
+                    for text in named:
+                        self.assertIn(text, result.stderr)
+
+    def test_compaction_reminds_and_requires_a_ledger(self):
+        def user(text):
+            return {"type": "user", "message": {"role": "user", "content": text}}
+
+        def reply(text):
+            return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+        skill = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime"}}]}}
+        compact = [{"type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"},
+                   {"type": "user", "isCompactSummary": True, "message": {"content": "This session is continued"}}]
+        done = "Recommended next action: run the tests."
+        ledger = "**Ledger:**\n- triage: pass, checked.\n\n" + done
+        cases = [
+            ("no compaction", [user("go"), skill, reply(done)], 0),
+            ("compacted, no MiniMe skill", [user("go"), *compact, user("go on"), reply(done)], 0),
+            ("compacted, no ledger yet", [user("go"), skill, reply(done), *compact, user("go on"), reply(done)], 2),
+            ("compacted, ledger written", [user("go"), skill, *compact, user("go on"), reply(ledger)], 0),
+            ("ledger in an earlier post-compaction turn", [user("go"), skill, *compact, reply(ledger),
+                                                           user("next"), reply("Done.")], 0),
+            ("ledger only mentioned mid-sentence", [user("go"), skill, *compact,
+                                                    reply("I will write the ledger later.\n" + done)], 2),
+            *[(f"not a ledger marker: {text!r}", [user("go"), skill, *compact, reply(f"{text}\n{done}")], 2)
+              for text in ("Ledger entries are stale.", "## Ledger", "- **Ledger**")],
+            *[(f"a ledger marker: {text!r}", [user("go"), skill, *compact, reply(f"{text}\n- x: pass\n{done}")], 0)
+              for text in ("  - **Ledger:**", "### Orchestration ledger:", "ledger: (post-compaction)")],
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            transcript = Path(d) / "t.jsonl"
+            for name, records, code in cases:
+                with self.subTest(name):
+                    transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+                    event = {"hook_event_name": "Stop", "transcript_path": str(transcript)}
+                    result = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, code, result.stderr)
                     if code:
-                        self.assertIn("Recommended next action:", result.stderr)
+                        self.assertIn("Ledger:", result.stderr)
+            with self.subTest("ledger and next action both missing"):
+                transcript.write_text("".join(json.dumps(r) + "\n" for r in
+                                              [user("go"), skill, *compact, user("go on"), skill, reply("Done.")]))
+                result = subprocess.run([sys.executable, str(self.GATE)], capture_output=True, text=True,
+                                        input=json.dumps({"hook_event_name": "Stop", "transcript_path": str(transcript)}))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("Ledger:", result.stderr)
+                self.assertIn("Recommended next action:", result.stderr)
+                result = subprocess.run([sys.executable, str(self.GATE)], capture_output=True, text=True,
+                                        input=json.dumps({"hook_event_name": "Stop", "stop_hook_active": True,
+                                                          "transcript_path": str(transcript)}))
+                self.assertEqual(result.returncode, 0, result.stderr)
+            for name, records, source, expected in (
+                    ("MiniMe session compacted", [user("go"), skill, *compact], "compact", "minime"),
+                    ("plain session compacted", [user("go"), *compact], "compact", ""),
+                    ("MiniMe session resumed", [user("go"), skill], "resume", "")):
+                with self.subTest(name):
+                    transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+                    event = {"hook_event_name": "SessionStart", "source": source,
+                             "transcript_path": str(transcript)}
+                    result = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if expected:
+                        self.assertIn("still in force", result.stdout)
+                        self.assertIn(expected, result.stdout)
+                    else:
+                        self.assertEqual(result.stdout, "")
+
+    def test_choice_gate_requires_the_decision_prompt_shape(self):
+        minime = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime"}}]}}
+
+        def option(label, description="Pros: a. Cons: b. Locks in: nothing."):
+            return {"label": label, "description": description}
+
+        def question(text="Pick one? Default if no reply: stop.", options=None):
+            return {"question": text, "header": "Pick", "multiSelect": False,
+                    "options": [option("A (Recommended)"), option("B")] if options is None else options}
+
+        cases = [
+            ("the full shape", [minime], [question()], 0, ""),
+            ("no MiniMe skill in the session", [], [question("Pick one?")], 0, ""),
+            ("two questions", [minime], [question(), question()], 2, "exactly one question"),
+            ("no default", [minime], [question("Pick one?")], 2, "Default if no reply"),
+            ("an option without lock-in", [minime], [question(options=[option("A"), option("B", "Pros: x. Cons: y.")])],
+             2, "'B' lacks Locks in:"),
+            ("no options", [minime], [question(options=[])], 2, "at least two options"),
+            ("one option", [minime], [question(options=[option("A")])], 2, "at least two options"),
+            ("a non-dict question", [minime], ["Pick?"], 2, "exactly one question"),
+            ("lower-case markers", [minime], [question("pick? default if no reply: A", [
+                option("A", "pros: x; cons: y; locks in: z"), option("B")])], 0, ""),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            transcript = Path(d) / "t.jsonl"
+            for name, records, questions, code, named in cases:
+                with self.subTest(name):
+                    transcript.write_text("".join(json.dumps(r) + "\n" for r in
+                                                  [{"type": "user", "message": {"content": "go"}}, *records]))
+                    event = {"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+                             "tool_input": {"questions": questions}, "transcript_path": str(transcript)}
+                    result = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertIn(named, result.stderr)
+
+    def test_one_read_command_counts_every_skill_file_it_names(self):
+        """A shared `cat a b c` loads all three skills, in the gate and in the audit."""
+        names = ("minime-doc-sync", "minime-scope-boundary", "minime-code-simplifier")
+        command = "cat " + " ".join(f"~/.claude/skills/{name}/SKILL.md" for name in names) + " | head"
+        self.assertEqual(minime._read_skills(minime.SKILL_READ_RE, command), set(names))
+        # The installed gate keeps its own copy of the read patterns (Decision 13).
+        def read_lines(path: Path) -> list[str]:
+            return [line for line in path.read_text().splitlines()
+                    if line.startswith(("SKILL_NAME =", "SKILL_FILE_RE =", "_SKILL_READ =", "SKILL_READ_RE =",
+                                        "CODEX_SKILL_READ_RE ="))]
+        self.assertEqual(read_lines(self.GATE), read_lines(REPO_ROOT / "scripts" / "minime"))
+        codex = json.dumps({"cmd": "cat ~/.codex/skills/minime-doc-sync/SKILL.md README.md\n"
+                                   "echo ~/.codex/skills/minime-code-reviewer/SKILL.md"})
+        self.assertEqual(minime._read_skills(minime.CODEX_SKILL_READ_RE, codex), {"minime-doc-sync"})
+        record = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": command}}]}}
+        transcript_records = [{"type": "user", "message": {"content": "go"}},
+                              {"type": "assistant", "message": {"role": "assistant", "content": [
+                                  {"type": "tool_use", "name": "Skill", "input": {"skill": name}}
+                                  for name in ("minime-project-commit", "minime-code-reviewer")]}},
+                              record]
+        with tempfile.TemporaryDirectory() as d:
+            result = self._gate(Path(d), transcript_records, "git commit -m x")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            blocked = self._gate(Path(d), transcript_records[:2], "git add -A && git commit -m x")
+            self.assertEqual(blocked.returncode, 2)
+            self.assertIn("stage in its own call", blocked.stderr)
 
     def test_gate_reads_codex_transcripts(self):
         def task():
@@ -1553,14 +1719,28 @@ class AgentHookCLITests(unittest.TestCase):
         def call(code):
             return {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec", "input": code}}
 
+        def reply(text):
+            return {"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                                                         "content": [{"type": "output_text", "text": text}]}}
+
+        checks = [call(f'tools.exec_command({{cmd:"cat ~/.codex/skills/{name}/SKILL.md"}})')
+                  for name in self.CHECKS]
         earlier = [{"type": "session_meta", "payload": {"id": "s"}}, task(), user("$minime go"),
                    user("<skill>\n<name>minime-project-commit</name>\nbody</skill>"), task(), user("continue")]
         cases = [
             ("no MiniMe skill in the session", [task(), user("fix it")], 0),
             ("commit skill loaded in an earlier task", earlier, 2),
-            ("commit skill injected in this task", [*earlier, user("<skill>\n<name>minime-project-commit</name>")], 0),
+            ("commit skill injected in this task", [*earlier, user("<skill>\n<name>minime-project-commit</name>"),
+                                                    *checks], 0),
             ("commit skill read in this task", [*earlier, call(
-                'tools.exec_command({cmd:"sed -n 1,80p ~/.codex/skills/minime-project-commit/SKILL.md"})')], 0),
+                'tools.exec_command({cmd:"sed -n 1,80p ~/.codex/skills/minime-project-commit/SKILL.md"})'),
+                *checks], 0),
+            ("commit skill without the checks", [*earlier, user("<skill>\n<name>minime-project-commit</name>")], 2),
+            ("light tier stated in this task", [*earlier, user("<skill>\n<name>minime-project-commit</name>"),
+                                                *checks[:3], reply("Commit tier: light. Status notes only.")], 0),
+            ("light tier only quoted in this task", [*earlier, user("<skill>\n<name>minime-project-commit</name>"),
+                                                     *checks[:3], reply("Per the rule, `Commit tier: light` skips it.")],
+             2),
         ]
         with tempfile.TemporaryDirectory() as d:
             for name, records, code in cases:
@@ -1573,7 +1753,8 @@ class AgentHookCLITests(unittest.TestCase):
         loaded = {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "name": "Skill", "input": {"skill": "minime"}}]}}
         read = {"type": "assistant", "message": {"role": "assistant", "content": [
-            {"type": "tool_use", "name": "Read", "input": {"file_path": "/s/skills/minime-self-commit/SKILL.md"}}]}}
+            {"type": "tool_use", "name": "Read", "input": {"file_path": f"/s/skills/{name}/SKILL.md"}}
+            for name in ("minime-self-commit", *self.CHECKS)]}}
         with tempfile.TemporaryDirectory() as d:
             transcript = Path(d) / "t.jsonl"
             transcript.write_text(json.dumps(user) + "\n" + json.dumps(loaded) + "\n")
@@ -1597,18 +1778,56 @@ class AgentHookCLITests(unittest.TestCase):
             return {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "name": name, "input": data}]}}
 
+        def reply(text):
+            return {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "text", "text": text}]}}
+
         orchestrated = [user("<command-name>/minime</command-name>"),
                         tool("Skill", skill="minime-project-commit"), user("continue")]
+        checks = [tool("Skill", skill=name) for name in self.CHECKS]
+        committing = [*orchestrated, tool("Skill", skill="minime-project-commit")]
+        queued = {"type": "attachment", "attachment": {"type": "queued_command", "prompt": "also note X"}}
+        check_cases = [
+            ("commit skill without the checks", committing, 2, "minime-doc-sync"),
+            ("full tier missing the reviewer", [*committing, *checks[:3]], 2, "minime-code-reviewer"),
+            ("full tier with every check", [*committing, *checks], 0, ""),
+            ("doc-check stands in for doc-sync", [*committing, tool("Skill", skill="minime-doc-check"),
+                                                  *checks[1:]], 0, ""),
+            ("checks from an earlier turn", [*committing[:-2], *checks, user("continue"), committing[-1]], 2,
+             "minime-doc-sync"),
+            ("a queued mid-turn message keeps the turn", [*committing, *checks[:2], queued, *checks[2:]], 0, ""),
+            ("light tier stated", [*committing, reply("**Commit tier:** light. Plan status only."),
+                                   *checks[:3]], 0, ""),
+            ("light tier without the simplifier", [*committing, reply("Commit tier: light"), *checks[:2]], 2,
+             "minime-code-simplifier"),
+            *[(f"tier text that does not choose light: {text!r}", [*committing, reply(text), *checks[:3]], 2,
+               "minime-code-reviewer") for text in (
+                "The rule: a turn stating `Commit tier: light` may skip review.", "Commit tier: light-ish",
+                "Commit tier: lighter", "- Commit tier: light\n\nCommit tier: full, a code file changed.")],
+            ("light tier in an earlier text block", [*committing, {"type": "assistant", "message": {
+                "role": "assistant", "content": [{"type": "text", "text": "Commit tier: light — status only"},
+                                                 {"type": "text", "text": "Running checks."}]}}, *checks[:3]],
+             0, ""),
+            ("light tier stated in an earlier turn", [*orchestrated[:2], reply("Commit tier: light"),
+                                                      user("continue"), committing[-1], *checks[:3]], 2,
+             "minime-code-reviewer"),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            for name, records, code, named in check_cases:
+                with self.subTest(name):
+                    result = self._gate(Path(d), records, "git commit -m x")
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertIn(named, result.stderr)
         cases = [
             ("no MiniMe skill in the session", [user("fix it")], "git commit -m x", 0),
             ("commit skill loaded in an earlier turn", orchestrated, "git add -A && git commit -m x", 2),
             ("commit skill loaded by the Skill tool", [*orchestrated, tool("Skill", skill="minime-self-commit"),
-                                                       user("Base directory for this skill: /h/x", meta=True)],
+                                                       user("Base directory for this skill: /h/x", meta=True), *checks],
              "git commit -m x", 0),
             ("commit skill read through Bash", [*orchestrated, tool(
-                "Bash", command="cat ~/.claude/skills/minime-project-commit/SKILL.md")], "git commit -m x", 0),
+                "Bash", command="cat ~/.claude/skills/minime-project-commit/SKILL.md"), *checks], "git commit -m x", 0),
             ("commit skill loaded by a skill base-directory message", [*orchestrated, user(
-                "Base directory for this skill: /h/.claude/skills/minime-project-commit", meta=True)],
+                "Base directory for this skill: /h/.claude/skills/minime-project-commit", meta=True), *checks],
              "git commit -m x", 0),
             ("text that only mentions a skill read", [*orchestrated, tool("Bash", command=(
                 "python3 - <<EOF\n    call('tools.exec_command({cmd:\"sed -n 1p "

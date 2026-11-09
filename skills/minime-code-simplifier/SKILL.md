@@ -25,6 +25,9 @@ DRY and YAGNI are mandatory simplification lenses:
 
 - Use as a post-implementation pass for every code change; may conclude
   already appropriately simple.
+- Also run it before every documentation-only commit (the light commit tier):
+  check the diff for duplicated, restated or padded text, and conclude in one
+  line when nothing applies.
 - Use for targeted refactoring, de-duplication, or complexity reduction.
 - Do not change documented behavior; do not weaken validation, audit,
   idempotency, or authority rules.

@@ -119,16 +119,23 @@ current position.
 - Status: accepted.
 - Context: running the full gate chain on every commit costs time and tokens
   without catching more on non-normative doc edits.
-- Decision: a light tier (doc-sync, scope, full project verification) applies
-  only when every changed file is documentation and no requirement, decision,
-  acceptance or safety text changes. Everything else runs the full tier
-  (doc-sync, scope, simplification, review, verification, commit). When in
-  doubt, use the full tier. Reflection writes a learnings entry only when it
-  produces an action; session checkpoints are written only at handoffs.
+- Decision: a light tier (doc-sync, scope, simplification, full project
+  verification) applies only when every changed file is documentation and no
+  requirement, decision, acceptance or safety text changes. Everything else
+  runs the full tier (doc-sync, scope, simplification, review, verification,
+  commit). When in doubt, use the full tier. Reflection writes a learnings
+  entry only when it produces an action; session checkpoints are written only
+  at handoffs.
 - Alternatives: any doc change qualifying (requirement edits skip review); a
   diff-size threshold (a one-line safety change skips review).
 - Consequences: applies to MiniMe (`AGENTS.md`, `minime-self-commit`) and to
   consumers through `minime-project-commit`.
+- Amendment (2026-11-09): the light tier also runs simplification, which still
+  finds redundant text in documentation diffs; only review is skipped. The
+  strictest applicable rule wins, so a user, memory or project-guide rule that
+  requires a skipped check overrides the tier. A target-project report showed
+  an agent skipping the simplifier on a spec diff that added defaults, which
+  needed the full tier anyway.
 
 ## Decision 8 — No personal data or other-project references
 
@@ -224,10 +231,11 @@ current position.
   commits ran without it.
 - Decision: `scripts/minime claude-hook|codex-hook install --write` copies
   `scripts/commit-gate` to a user-level directory and registers it as a
-  `PreToolUse` hook for Bash in `~/.claude/settings.json` or
-  `~/.codex/hooks.json`. It blocks a `git commit` when the session has loaded a
-  MiniMe skill but the current turn has not loaded `minime-project-commit` or
-  `minime-self-commit`. Sessions with no MiniMe skill are never blocked.
+  `PreToolUse` hook for Bash (and, in Claude Code, `AskUserQuestion`; see the
+  amendments) in `~/.claude/settings.json` or `~/.codex/hooks.json`. It
+  blocks a `git commit` when the session has loaded a MiniMe skill but the
+  current turn has not loaded `minime-project-commit` or `minime-self-commit`.
+  Sessions with no MiniMe skill are never blocked.
 - Alternatives: a reminder from the slop-scan hook (cannot tell an agent from
   the user); skill wording only (relies on the instruction-following that
   fails).
@@ -240,6 +248,35 @@ current position.
   next action:`, progress updates included; the hook blocks once and the agent
   adds the line. Transcripts showed late-session turns dropping the line.
   Codex is not covered until its stop-hook support is checked.
+- Amendment (2026-11-09): the commit turn must also load the check skills:
+  doc-sync (or doc-check), scope-boundary, simplifier and reviewer. A turn whose
+  latest line-leading `Commit tier:` statement says `light` may skip the
+  reviewer; the hook trusts that statement because it cannot judge a diff's
+  content. A target-project report
+  showed an agent that loaded the commit skill but skipped its checks. The hook
+  sees that a skill was loaded, not that it was followed. Receipt files keyed
+  to the staged tree were rejected: the agent writes them itself, so they
+  prove no more than the transcript and add a write step to every check skill.
+  Messages queued mid-turn are attachments, not new turns, so checks run
+  before one still count.
+- Amendment (2026-11-09, question rules): in Claude Code the hook also gates
+  `AskUserQuestion` in MiniMe sessions: one question per call, `Default if no
+  reply:` in the question, and `Pros:`, `Cons:` and `Locks in:` in each option.
+  The `Stop` hook also bounces a turn whose last prose line before the next
+  action is a question, unless the turn used the choice UI. Transcripts from
+  2026-11-01 to 2026-11-07 showed 11 of 187 choice-UI calls asking several
+  questions, and a target-project report
+  showed the shape's default and citations dropping out when squeezed into
+  the UI's fields. Marker checks prove the fields are present, not that their
+  content is sound. Codex has no choice UI to gate.
+- Amendment (2026-11-09, compaction): a target-project report showed a
+  compacted session keeping only the hook-checked rules; the summary presents
+  loaded skills as background, so the ledger, menus and sub-skill reads
+  stopped. In Claude Code the hook now also runs on `SessionStart` with the
+  `compact` matcher, whose stdout becomes context, and reminds the agent that
+  the loaded MiniMe skills are still in force. Until a reply starts a line
+  with `Ledger:`, the `Stop` hook blocks each stop once. The marker shows a
+  ledger exists, not that it is right. Codex is not covered.
 
 ## Decision 14 — Installer-generated host adapters
 

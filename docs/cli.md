@@ -206,29 +206,55 @@ Behavior:
 
 - Install copies `scripts/commit-gate` to
   `~/.config/minime/claude-hooks/commit-gate` and adds a `PreToolUse` hook
-  for `Bash` and a `Stop` hook to `~/.claude/settings.json`. Other settings
-  and hooks are kept, reinstalling does not add second entries, and an
-  unreadable settings file is refused. Uninstall removes only those entries
-  and the copied script.
+  for `Bash` and `AskUserQuestion`, a `Stop` hook and a `SessionStart` hook
+  for `compact` to `~/.claude/settings.json`. Other settings and hooks are
+  kept, reinstalling does not add second entries and widens an earlier
+  `Bash`-only matcher, and an unreadable settings file is refused. Uninstall
+  removes only those entries and the copied script.
 - Before each Bash call, the gate checks for a `git commit` command. It blocks
   the commit (exit 2, with a message to the agent) when the session has loaded
   a MiniMe skill but the current turn has not loaded `minime-project-commit` or
   `minime-self-commit`. Loads count through the Skill tool, a slash command, an
   injected `<skill>` block or `$minime*` mention (Codex), or a Read or
-  `cat`/`sed`-style read of the skill's `SKILL.md` that starts a shell segment.
+  `cat`/`sed`-style read that starts a shell segment, counting every `SKILL.md`
+  the segment names. A block message reminds the agent that a blocked
+  command runs none of its parts, so staging chained to the commit is lost.
   A Codex turn starts at its `task_started` event. Detection is textual: a
   command that contains a complete read command as data, such as a heredoc,
   can still count as a load.
+- The same turn must also load the check skills: `minime-doc-sync` (or
+  `minime-doc-check`), `minime-scope-boundary`, `minime-code-simplifier` and
+  `minime-code-reviewer`. A turn whose latest line starting with
+  `Commit tier:` says `light` may skip the reviewer; a quote mid-sentence does
+  not count, and a later `Commit tier: full` withdraws it. The gate trusts the
+  statement and cannot judge the diff.
+  A message queued mid-turn does not start a new turn.
+- Any skill named `minime` or `minime-*` counts as a MiniMe skill, the
+  `minime` orchestrator included.
 - Sessions that never loaded a MiniMe skill, commands that only mention
   `git commit` (including in a heredoc body, unless a shell, `eval`, `source`
   or `.` on the `<<` line may run it), and unreadable transcripts pass.
 - Before blocking, the gate re-reads the transcript for up to 2 seconds,
   because a skill read sent in the same parallel batch as the commit can reach
   the transcript after the hook starts.
+- In a session that loaded a MiniMe skill, an `AskUserQuestion` call is
+  blocked (exit 2) unless it asks exactly one question with at least two
+  options, the question contains `Default if no reply:`, and every option
+  description contains `Pros:`, `Cons:` and `Locks in:` (case-insensitive),
+  the `minime-decision-prompt` shape. Install widens an earlier `Bash`-only
+  matcher in place, but keeps a customized or shared one and prints a note.
 - When a turn ends, the `Stop` hook blocks once (exit 2, with a message to the
   agent) if the turn loaded a MiniMe skill and its last main-thread reply does
-  not contain `Recommended next action`. It does not block again while the
-  agent is continuing from that block (`stop_hook_active`).
+  not contain `Recommended next action`, or its last prose line before that
+  line (not code, a quote, a heading or a table row) ends in `?` while the
+  turn made no `AskUserQuestion` call. It does not
+  block again while the agent is continuing from that block
+  (`stop_hook_active`).
+- After a compaction in a session that loaded a MiniMe skill, the
+  `SessionStart` hook prints a reminder, added as context, that those skills
+  are still in force and the step-0 ledger is due. Until a main-thread reply
+  starts a line with `Ledger:` (or `Orchestration ledger:`), the `Stop` hook
+  blocks each stop once.
 
 ### `scripts/minime codex-hook install|uninstall`
 
@@ -241,7 +267,8 @@ scripts/minime codex-hook uninstall --write
 
 Behavior:
 
-- Same as `claude-hook` without the `Stop` hook, with the script in
+- Same as `claude-hook` without the `Stop` and `SessionStart` hooks and the
+  `AskUserQuestion` gate, with the script in
   `~/.config/minime/codex-hooks/commit-gate` and the entry in
   `~/.codex/hooks.json`.
 - Codex runs a user-level hook only after you trust it in `/hooks`, and again

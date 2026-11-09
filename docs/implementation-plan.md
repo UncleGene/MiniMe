@@ -95,11 +95,13 @@ cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Make the question rules stick (chosen on 2026-11-07). Drop the six per-option
-orchestration ratings the `minime` skill adds, which duplicate
-`minime-decision-prompt`'s pros, cons, cost and lock-in. In Claude Code, have
-the agent hooks block a choice-UI call that asks more than one question, and
-send a MiniMe turn that ends on a prose question back to the choice UI. Of 187
+Measure whether the question rules stick (chosen on 2026-11-07, implemented on
+2026-11-09). The `minime` skill no longer adds per-option orchestration ratings.
+In Claude Code the agent hooks block a choice-UI call that asks more than one
+question or lacks the decision-prompt markers, and send a MiniMe turn that ends
+on a prose question back to the choice UI (Decision 13 amendment). Once a week
+of sessions has run with the hook installed, run `transcript-audit` against the
+acceptance check below. Before the change, of 187
 choice-UI calls in 32 MiniMe sessions from 2026-11-01 to 2026-11-07, 11 asked
 two or more questions and 80 came in a turn that had not loaded
 `minime-decision-prompt` (an upper bound: an earlier turn's copy may still be
@@ -184,7 +186,8 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Question rules stick | Drop the duplicate orchestration ratings; Claude Code hooks block multi-question choice-UI calls and bounce prose questions (next step above). | Hook tests pass; after install, `transcript-audit` shows no multi-question calls and fewer `prose-question` findings. |
+| Question rules stick | Implemented 2026-11-09: duplicate orchestration ratings dropped; Claude Code hooks block multi-question or unmarked choice-UI calls and bounce prose questions (next step above). | Hook tests pass; after install, `transcript-audit` shows no multi-question calls and fewer `prose-question` findings. |
+| Post-commit menu and prose choices | A target-project report (2026-11-09) saw three commits in one compacted session end without the post-commit "what next?" menu that `minime-project-commit` requires, and options offered as prose ("type X to choose") instead of the choice UI. After Question rules stick is accepted, decide (open, for `minime-decision-prompt`): whether a hook enforces the menu and how autopilot's commit-and-continue loop is exempted; whether the menu offers "Stop and reflect" after N commits since the last reflection, as the report proposed, and the value of N. The menu-enforcement and prose-choice checks both judge how a MiniMe turn ends, so they share the Stop hook. In scope: `transcript-audit` finding kinds for a post-commit turn without a menu and for a prose choice. | The new finding kinds exist with tests, prose-choice false-positive samples pass, and hook cases cover the enforcement, if any, and the exemption the decision chose; after install, `transcript-audit` shows neither finding kind. |
 | More stack profiles (lower priority) | Profiles and fixtures in order of recorded demand: sessions outside MiniMe and review-eval whose review reported the stack uncovered, counted on 2026-10-25. Ruby with Rails and ERB first (18 and 17 sessions), then Lua (16), then JavaScript (10). TypeScript (3), React and Vitest (0) wait until the warnings show demand; their marker rows in `stacks.md` stay so the warnings keep counting (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
 
 ## Plan maintenance

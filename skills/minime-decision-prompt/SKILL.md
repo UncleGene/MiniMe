@@ -51,6 +51,10 @@ Rules), which is stated instead of asked.
   or record it as unverified, never as failed (the premise check in
   `minime-course-correction-triage`); asking how to build something that may
   not work is premature.
+- An external fact an option relies on (a law, a program rule, a vendor
+  limit) needs a source checked this session, cited in the option; otherwise
+  mark the option `unverified` and say what would check it. Never state such
+  a fact from memory as settled.
 - One question per turn. If multiple ambiguities exist, rank them by
   blocking priority — which one would halt implementation if left unresolved?
   Present the highest-priority question first. After the user answers, check
@@ -65,6 +69,10 @@ Rules), which is stated instead of asked.
 - If you cannot name a real con for an option, you have not understood it
   yet — restate.
 - Cite the artifacts each option affects (path:line or document section).
+- Write the question and every option so they read correctly with the dialog
+  seen alone: name what an identifier means (decision, requirement, question,
+  milestone or item number, version shorthand) the first time it appears,
+  e.g. "Decision 13 (agent commit gate)", never a bare "Q7" or "item 7".
 - Two options is the default; add a third only when it is materially
   different.
 - A terse free-text reply ("go", "ok") approves the recommended option
@@ -79,6 +87,14 @@ Rules), which is stated instead of asked.
   bulleted text lists push the typing burden onto the user and obscure the
   recommended option. Fall back to numbered text options only when no choice
   UI exists in the current host.
+- Map the shape onto the choice UI's fields; nothing may drop out. Put context
+  and why-it-matters in the reply text before the call. The question field
+  ends with `Default if no reply: <option or stop>`. Each option description
+  carries `Pros:`, `Cons:` and `Locks in:`, plus `Affects:` with path:line
+  when an artifact changes; the recommended option's label ends with
+  `(Recommended)` and its description gives the confidence. Ask one question
+  per call. In Claude Code an installed MiniMe hook rejects calls that miss
+  these markers.
 
 ## Interaction rules
 

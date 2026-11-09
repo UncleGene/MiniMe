@@ -39,8 +39,8 @@ Run these checks first, before invoking `minime-project-commit`.
 Before staging or committing, create a commit gate ledger and keep it current
 until the commit is complete. Use `status: pending`, `status: pass`,
 `status: blocked`, or `status: skipped (light tier)` for each row, with one
-evidence sentence. Only the simplifier and reviewer rows may be skipped, and
-only when the light tier in `AGENTS.md` applies.
+evidence sentence. Only the reviewer row may be skipped, and only when the
+light tier in `AGENTS.md` applies.
 
 Required rows:
 

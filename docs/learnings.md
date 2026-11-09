@@ -100,3 +100,17 @@ Action taken:
   `minime-course-correction-triage` and `AGENTS.md`, and
   `minime-decision-prompt` confirms the premise before the first design
   question; a guard test pins both.
+
+## 2026-11-09 — Hook copies drifted; the reviewer fork touched the index
+
+Context: acting on two target-project reports about skipped gates and question
+shape, with the agent commit gate as the main fix.
+
+Action taken:
+- The installed gate keeps its own copy of the transcript patterns (Decision
+  13), and two had drifted from the audit's: the gate ignored the bare `minime`
+  skill, and both read only the first `SKILL.md` in a shared `cat`. A test now
+  pins the skill-name and read-pattern lines as identical in both files.
+- The forked reviewer ran `git stash` and `git stash pop` mid-review, briefly
+  unstaging the commit under review. `minime-code-reviewer` now forbids
+  changing the working tree or index.

@@ -35,9 +35,11 @@ project you may later share or open-source fit to show.
     focused tests, blanket lint/type suppressions and debugger calls in staged
     code, then runs the repository's own pre-commit hook;
   - an agent commit gate for Claude Code and Codex that blocks an agent's
-    `git commit` until the commit procedure is loaded in that turn; in
-    Claude Code it also keeps a MiniMe turn from ending without a
-    recommended next action.
+    `git commit` until the commit procedure and its checks are loaded in
+    that turn; in Claude Code it also keeps a MiniMe turn from ending
+    without a recommended next action or on a prose question, rejects
+    choice questions that drop the decision-prompt shape, and after a
+    compaction requires the orchestration ledger again.
 - **Audits**: check host registration, confirm a project carries no MiniMe
   trace, and scan your local agent transcripts for skill misfires and token
   counts. Nothing is collected or sent anywhere.

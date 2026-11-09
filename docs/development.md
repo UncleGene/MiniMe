@@ -79,8 +79,8 @@ Mypy uses its default checks. Host audits need the installed surfaces.
 
 Commits go through `minime-self-commit`, which picks the gate tier
 (Decision 7): documentation-only changes that touch no requirement, decision,
-acceptance or safety text run doc-sync, scope and verification; everything
-else also runs simplification and review. Update docs, plan status and
+acceptance or safety text run doc-sync, scope, simplification and
+verification; everything else also runs review. Update docs, plan status and
 decisions in the same commit as the change they describe.
 
 ## Privacy

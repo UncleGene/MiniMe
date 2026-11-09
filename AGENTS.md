@@ -56,8 +56,8 @@ particular-version enforcement is very low priority (Decision 5).
 Before any commit or completion claim for a MiniMe change, pick the gate tier
 (Decision 7). The light tier applies only when every changed file is
 documentation and no requirement, decision, acceptance or safety text changes:
-status, history, notes, checkpoints, typos and links. It runs gates 1, 2, 5 and
-6 and skips simplification and review. Any code, test, build/config, skill or
+status, history, notes, checkpoints, typos and links. It runs gates 1, 2, 3, 5
+and 6 and skips review. Any code, test, build/config, skill or
 procedure change uses the full tier, gates 1–6. When in doubt, use the full tier.
 
 1. Run `minime-doc-sync` against the diff — confirm README and all other docs

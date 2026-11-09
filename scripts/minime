@@ -404,7 +404,7 @@ HOSTS: dict[str, HostSpec] = {
                               "Glob", "Skill", "Bash(git diff:*)", "Bash(git status:*)"],
                      "model": ["--model", "{}"], "effort": ["--effort", "{}"]},
         "hooks": {"dir": "~/.config/minime/claude-hooks", "settings": "~/.claude/settings.json",
-                  "events": {"PreToolUse": "Bash", "Stop": None}},
+                  "events": {"PreToolUse": "Bash|AskUserQuestion", "Stop": None, "SessionStart": "compact"}},
     },
     "opencode": {"name": "OpenCode", "skills_root": "~/.config/opencode/skills"},
     "copilot": {"name": "GitHub Copilot", "skills_root": "~/.copilot/skills"},
@@ -1436,9 +1436,10 @@ DOLLAR_SKILL_RE = re.compile(rf"\$({SKILL_NAME})\b")
 SKILL_FILE_RE = re.compile(rf"skills/({SKILL_NAME})/SKILL\.md")
 # A read counts only when a read command starts a shell segment and names the
 # SKILL.md in that segment; text that merely mentions such a command, as in a
-# heredoc, does not.
+# heredoc, does not. Every SKILL.md the segment names counts (`cat a b c`).
 # Codex commands may also start at its exec wrapper's `cmd` string.
-_SKILL_READ = rf"\s*(?:cat|sed|head|tail|less|nl|awk|bat)\b[^\n;&|]*?skills/({SKILL_NAME})/SKILL\.md"
+# A segment also ends at an escaped `\n`, the newline inside Codex JSON args.
+_SKILL_READ = r"\s*(?:cat|sed|head|tail|less|nl|awk|bat)\b((?:(?!\\n)[^\n;&|])*)"
 SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\()" + _SKILL_READ)
 CODEX_SKILL_READ_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|cmd\W{1,4})" + _SKILL_READ)
 GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
@@ -1493,6 +1494,11 @@ def _jsonl_records(path: Path):
                 continue
             if isinstance(record, dict):
                 yield record
+
+
+def _read_skills(read_re: re.Pattern, command: str) -> set[str]:
+    """Skills whose SKILL.md a read segment of the command names."""
+    return {name for segment in read_re.findall(command) for name in SKILL_FILE_RE.findall(segment)}
 
 
 def _parse_claude_transcript(path: Path) -> dict[str, Any]:
@@ -1554,7 +1560,7 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
                     elif name == "Bash":
                         command = str(data.get("command", ""))
                         turn["commands"].append(command)
-                        turn["skills"].update(SKILL_READ_RE.findall(command))
+                        turn["skills"].update(_read_skills(SKILL_READ_RE, command))
     return session
 
 
@@ -1608,7 +1614,7 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
         elif kind in ("function_call", "custom_tool_call"):
             command = str(payload.get("arguments") or payload.get("input") or "")
             turn["commands"].append(command)
-            turn["skills"].update(CODEX_SKILL_READ_RE.findall(command))
+            turn["skills"].update(_read_skills(CODEX_SKILL_READ_RE, command))
         elif kind == "task_complete":
             turn["final"] = payload.get("last_agent_message") or ""
             turn["asked_with_ui"] = "choice_ui" not in HOSTS["codex"]  # nothing to check against
@@ -2010,7 +2016,8 @@ def command_git_hook(args: argparse.Namespace) -> int:
 # Agent hooks (Decision 13): a user-level PreToolUse hook runs
 # scripts/commit-gate before Bash calls and blocks agent commits made without a
 # commit skill loaded in the turn. In Claude Code the same script is a Stop hook
-# that keeps a MiniMe turn from ending without a next action. Claude Code and
+# that keeps a MiniMe turn from ending without a next action or on a prose
+# question, and it gates the choice UI's question shape. Claude Code and
 # Codex share the hooks JSON shape; each host gets its own script copy, and only
 # its own entries are touched. Each event maps to its tool matcher, if any; the
 # hosts and their settings come from the host table.
@@ -2059,12 +2066,24 @@ def command_agent_hook(args: argparse.Namespace) -> int:
         script.write_text((repo_root() / "scripts" / "commit-gate").read_text(encoding="utf-8"),
                           encoding="utf-8")
         script.chmod(0o755)
-        missing = [event for event in host["events"] if not installed(event)]
-        for event in missing:
-            matcher = host["events"][event]
-            hooks.setdefault(event, []).append(
-                {**({"matcher": matcher} if matcher else {}), "hooks": [{"type": "command", "command": str(script)}]})
-        if missing:
+        changed = False
+        for event, matcher in host["events"].items():
+            entry = next((e for e in hooks.get(event, []) if isinstance(e, dict)
+                          and any(ours(h) for h in e.get("hooks") or [])), None)
+            if entry is None:
+                hooks.setdefault(event, []).append(
+                    {**({"matcher": matcher} if matcher else {}), "hooks": [{"type": "command", "command": str(script)}]})
+                changed = True
+            elif matcher and entry.get("matcher") != matcher:
+                current = set(str(entry.get("matcher", "")).split("|"))
+                if current < set(matcher.split("|")) and len(entry.get("hooks") or []) == 1:
+                    # An earlier install matched fewer tools; widen it in place.
+                    entry["matcher"] = matcher
+                    changed = True
+                elif "matcher" in entry:
+                    print(f"note: kept the customized {event} matcher {entry.get('matcher')!r}; "
+                          f"MiniMe expects {matcher!r}")
+        if changed:
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
         print("Result: installed")

@@ -42,9 +42,15 @@ Prepare a change for commit with a traceable, atomic commit message.
 
 Pick the tier first. Light tier: every changed file is documentation and no
 requirement, decision, acceptance or safety text changes (status, history,
-notes, checkpoints, typos, links); run doc-sync, scope and the full project
-checks, and skip simplifier and reviewer. Any code, test, build/config, skill or
-procedure change uses the full tier below. When in doubt, use the full tier.
+notes, checkpoints, typos, links); run doc-sync, scope, simplifier and the full
+project checks, and skip the reviewer. Any code, test, build/config, skill or
+procedure change uses the full tier below. A spec or plan edit that adds a
+default, rule or option is requirement or decision text, so it takes the full
+tier. When in doubt, use the full tier. The strictest applicable rule wins:
+when a user, memory or project-guide rule requires a check the tier would
+skip, run it. State the choice in a reply line, `Commit tier: light — <why>`
+or `Commit tier: full`; the installed agent commit gate lets only a turn that
+states the light tier skip the reviewer.
 
 Execute these checks sequentially — delegate to each named skill by reading
 its file and following its procedure. After each check passes with no
@@ -59,7 +65,7 @@ passing gates.
   staged diff.
 - Read the minime-code-simplifier skill file and follow its procedure
   against the staged diff — simplify before review so the reviewer sees
-  clean code. This step is mandatory in the full tier.
+  clean code. This step is mandatory in both tiers.
 - Invoke `minime-code-reviewer` through the host's skill mechanism, so a host
   that runs it in a fresh context can; if the host has none, read its skill
   file and follow its procedure. Pass the staged diff as its scope. This step is

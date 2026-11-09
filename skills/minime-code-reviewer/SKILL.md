@@ -37,6 +37,11 @@ item is not a pass. Cite `path:line` for each defect found. Then read
 `references/stacks.md` next to this skill file, detect the stack layers of the
 touched paths, and apply each matching profile from `references/`.
 
+- Untraced decisions: in a spec, plan, requirement or decision diff, every
+  new rule, default or option change must trace to a recorded user answer or
+  an accepted decision. Mark each one that does not as an unconfirmed agent
+  default, a blocking issue routed to `minime-decision-prompt`; never settle
+  it inline or relabel it as a planning default.
 - Invented APIs: confirm that every newly used function, flag, config key and
   package exists in the installed version. Check the source, lockfile or docs,
   not memory.
@@ -57,6 +62,9 @@ touched paths, and apply each matching profile from `references/`.
 ## Rules
 
 - Re-read the diff itself; do not review from a summary or memory of intent.
+- Leave the working tree and index as you found them: no `git stash`,
+  `checkout`, `reset`, `add` or edits. To compare against the base, use
+  `git diff`, `git show` or a scratch copy outside the repo.
 - Verify any cross-file claim against source before accepting it.
 - Challenge duplication unless each copy must stand alone or has a documented
   authority boundary.
