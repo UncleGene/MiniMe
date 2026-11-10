@@ -19,13 +19,15 @@ covers the same ground for people.
   `evals/doc-check/<layer>/` — planted stale-doc fixtures for `minime-doc-check`.
 - `tests/` — stdlib unittest suite.
 - `docs/` — CLI reference, reports, troubleshooting, requirements,
-  architecture, decisions, plan, learnings and dated reassessment reports.
+  architecture, decisions, plan and learnings; `docs/templates/` holds the
+  optional host verification report template.
 - `CLAUDE.md`, `GEMINI.md` — surface adapters that delegate to `AGENTS.md`.
 
 ## Environment
 
 The CLI needs only Python 3.14+. Development checks use Ruff 0.15.12, mypy
-1.20.2 and, for the distillation check, pytest 9.0.3:
+1.20.2 and, for the skill-size (distillation) check in
+[Changing a skill](#changing-a-skill), pytest 9.0.3:
 
 ```sh
 python3 -m venv .venv

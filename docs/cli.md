@@ -1,14 +1,28 @@
-# CLI
+# CLI reference
 
-`scripts/minime` is a dependency-free Python CLI for MiniMe's local skill
-catalog, validation helpers, host installation and user-level hooks (Python
-3.14+). All commands are read-only unless `--write` is passed explicitly.
-`skills install --write`,
-`git-hook install|uninstall --write` and `claude-hook|codex-hook install|uninstall --write`
-are the only write commands, all at user level; consuming repositories are not edited. Installer metadata/path
-admission and contamination preflight run before writes; nested destination
-symlinks/non-file paths block the batch. Installation and registration audit
-compare generated metadata against current source-derived output.
+`scripts/minime` is the MiniMe command-line tool: a single Python 3.14+ script
+with no dependencies. Run it from your MiniMe clone.
+
+Every command is read-only unless you pass `--write`. Only four commands
+write, all to your user account and never to a project:
+`skills install --write`, `git-hook install|uninstall --write`,
+`claude-hook install|uninstall --write` and
+`codex-hook install|uninstall --write`. Before writing, the installer
+validates every skill and every destination, and it writes nothing if any
+check fails. Most commands accept `--json`; see [JSON reports](reports.md).
+
+| Command | Use it to |
+|---|---|
+| `doctor` | Show the MiniMe version, Python runtime and status. |
+| `skills install` | Install or update the skills in your host folders. |
+| `git-hook`, `claude-hook`, `codex-hook` | Install or remove the optional hooks. |
+| `host-registration-audit` | Check that a host folder holds current skills. |
+| `transparent-audit` | Check that a project carries no MiniMe trace. |
+| `transcript-audit` | Scan local agent transcripts for skipped steps. |
+| `skills list`, `skills install-check`, `skills similar` | Work on MiniMe's own skills. |
+| `review-eval` | Score the reviewer on planted-defect fixtures (spends plan quota). |
+
+## Install and update
 
 ### `scripts/minime doctor`
 
@@ -20,144 +34,64 @@ scripts/minime doctor
 
 Prints the MiniMe version, Python runtime, repo path, write posture, and status.
 
-### `scripts/minime transparent-audit --repo <path>`
+### `scripts/minime skills install`
 
-Audits one or more product repos for transparent MiniMe consumption.
-
-```sh
-scripts/minime transparent-audit --repo /path/to/product-repo
-scripts/minime transparent-audit --repo /path/to/repo-a --repo /path/to/repo-b --json
-```
-
-Behavior:
-
-- Reads target repos without writing to them.
-- Blocks textual MiniMe references.
-- Blocks symlinks that point to MiniMe.
-- Blocks known MiniMe skill names in inspected text; renamed copied bodies are not detected.
-- Skips common generated/vendor directories such as `.git`, `node_modules`,
-  `.venv`, `vendor`, `dist`, and `build`.
-- Reads at most 512,001 bytes per regular file, inspecting the first 512,000
-  bytes decoded as UTF-8 with replacement for invalid sequences.
-- Excludes binary files (NUL in the first 2,048 bytes), non-regular files and
-  symlink contents. Symlink targets are checked without following their contents.
-- Oversized text, file/entry/symlink access failures and directory traversal
-  errors produce `inspection-incomplete` findings and block the repo and overall
-  result (exit 1). Detectable references in a truncated prefix are still reported.
-- A pass means no findings within this inspection scope. It does not establish
-  complete isolation; manually review instructions for renamed workflow copies.
-
-### `scripts/minime host-registration-audit`
-
-Audits host/user-level MiniMe skill registration without reading or writing any
-product repo.
+Installs or updates the skills in your host skills folders. Without `--write`
+it is a dry run that lists what would be created, updated, skipped or blocked.
 
 ```sh
-scripts/minime host-registration-audit
-scripts/minime host-registration-audit --skills-root /path/to/host/skills --json
+scripts/minime skills install                  # dry run
+scripts/minime skills install --write          # install or update
+scripts/minime skills install --write --force  # also migrate old symlinked installs
+scripts/minime skills install --skills-root ~/.claude/skills --write  # one folder only
 ```
 
-Behavior:
+What it installs:
 
-- Defaults to the first existing skills root in the host table
-  (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
-  `~/.copilot/skills`).
-- Use `--skills-root` to audit a specific surface.
-- Verifies every `target-reusable` skill has a host-level wrapper
-  directory containing a regular installed `SKILL.md` file and
-  `agents/openai.yaml`.
-- Verifies installed `SKILL.md` content matches the matching MiniMe skill file,
-  and that installed `references/` holds exactly the source references.
-- Blocks symlinked `SKILL.md` wrappers because current Codex user-skill
-  discovery does not load them.
-- Blocks extra `minime` or `minime-*` host entries that are not in the target-reusable
-  manifest.
-- Requires generated metadata to match MiniMe's canonical output, including
-  display name, short description and default prompt. Metadata links/nonfiles
-  are blocked. Empty, malformed or different content is reported stale.
-- A filesystem pass does not prove fresh host discovery or workflow outcomes.
-- Writes nothing.
+- Every `target-reusable` skill, into every host folder that exists:
+  `~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills` and
+  `~/.copilot/skills`. `--skills-root <path>` installs into that one folder
+  instead. Point it only at a user-level host folder, never at a folder
+  inside a project: MiniMe must leave no files in your projects, and the
+  command does not check this for you. `~/.agents/skills` is left out on purpose: Codex reads it as well
+  as `~/.codex/skills`, so installing there would show every skill twice.
+- Each skill becomes a folder holding a regular copy of its `SKILL.md`, a
+  generated `agents/openai.yaml` (Codex metadata) and a copy of its
+  `references/` when it has one.
+- In `~/.claude/skills`, a skill marked `minime_context: fresh` (currently
+  `minime-code-reviewer` and `minime-doc-check`) gets `context: fork`,
+  `background: false` and its model (`sonnet` for the `fast` tier, otherwise
+  `inherit`) added to its frontmatter, so Claude Code runs it as a subagent.
 
-### `scripts/minime transcript-audit`
+Why copies, not symlinks: Codex does not load a symlinked `SKILL.md` and needs
+`agents/openai.yaml`, and Claude Code needs the changed frontmatter above. All
+other installed files are identical to the clone; linking them is a plan
+candidate.
+After `git pull`, re-run `skills install --write`.
 
-On-demand, read-only scan of local Claude Code and Codex transcripts for MiniMe
-skill use, token counts and observable contract misfires (Decision 10).
+Safety:
 
-```sh
-scripts/minime transcript-audit
-scripts/minime transcript-audit --since 2026-10-07 --json
-```
+- Nothing is written unless every skill passes validation (name, description,
+  metadata, and no local paths or secret-looking tokens) and every destination
+  is a safe path. One rejected destination cancels the whole batch, including
+  folders already checked. Unexpected I/O failures have no automatic rollback.
+- Symlinked `agents/` or `agents/openai.yaml` paths and unexpected file types
+  are blocked, even with `--force`.
+- Installed files are owned by MiniMe: local edits, stale copies and extra
+  reference files are replaced or removed on the next `--write`. Repeated runs
+  change nothing.
 
-Behavior:
+Older installs:
 
-- Reads `~/.claude/projects` and `~/.codex/sessions` (override with
-  `--claude-root` / `--codex-root`), including the `.jsonl.zst` files Codex
-  compresses older rollouts into; OpenCode and Copilot are not parsed.
-- Counts MiniMe skill loads per skill: slash commands, Skill-tool calls,
-  injected `<skill>` blocks, `$minime*` mentions and reads of a `SKILL.md`.
-- Flags, once per turn: `no-next-action`, `next-action-unformatted`,
-  `prose-question` (Claude only), `commit-unverified` (no test or check command
-  earlier in the turn or since the previous commit) and
-  `commit-without-commit-skill`.
-- Reports token counts (`input`, `cache_read`, `cache_write`, `output`) per
-  host, split between the main context and subagent transcripts (Claude Code
-  only; Codex sessions all count as main). Claude Code records that repeat a
-  message's usage are counted once; Codex usage comes from increases in its
-  cumulative totals. Pricing, and cost per gated change, are measured with the
-  maintainer's local tooling, which is not published (REQ-010).
-- Excludes `review-eval` runs, recognized by a prompt that starts with the
-  review-eval prompt, and the subagents they fork; their count is reported per
-  host.
-- `--since` takes a date or a datetime; a datetime with an offset is converted
-  to UTC, the time zone of transcript timestamps.
-- Findings are heuristics; verify each one in the transcript before acting.
-- Projects are reported as `project-N` and sessions as an 8-character id. No
-  paths or message text are printed. Writes nothing.
+- `--write` converts MiniMe's older symlinked `SKILL.md` wrappers to regular
+  files, removing only the link.
+- Older installs that linked a whole skill folder are reported as conflicts
+  until you run `--write --force`.
 
-### `scripts/minime review-eval`
+The name and description rules the validator applies are listed under
+[metadata errors](troubleshooting.md#skill-metadata-errors).
 
-Scores headless reviews of planted-defect fixtures (Decisions 9/11).
-
-```sh
-scripts/minime review-eval --host claude
-scripts/minime review-eval --host claude --skill doc-check --run --model sonnet
-scripts/minime review-eval --host codex --run --json
-scripts/minime review-eval --host claude --run --model <model> --effort <level> --layer python
-scripts/minime review-eval --host codex --run --tier hard --model <model>
-```
-
-Behavior:
-
-- `--skill` picks the skill scored: `code-reviewer` (default) on
-  `evals/review/`, or `doc-check` on `evals/doc-check/`, whose defects are
-  stale lines, often in documents the change left untouched (Decision 14).
-- Fixtures live in `evals/<skill root>/<layer>/`. Each layer has a `base/` project,
-  and each fixture has a `change/` overlay plus an `expected.json` answer key.
-  Defect keys locate the planted defect by a text snippet, or list several
-  planted defects under `defects`. Controls carry no defect. An `uncovered` key
-  expects the review to report the stack as having no profile. `"tier": "hard"`
-  marks fixtures built to tell model tiers apart (larger diffs, several defects,
-  plausible invented APIs, tests that pass without the change); `--tier` runs
-  one tier only.
-- Without `--run`, it lists the fixtures and invokes nothing. With `--run`, it
-  copies each base and overlay into a temporary git repo, so the change is the
-  uncommitted diff. It then runs one review per fixture, in parallel (`--jobs`,
-  default 4):
-  - Claude Code: `claude -p` with installed hooks disabled, restricted to read,
-    search, skill and `git diff` tools. A `Stop` hook's added reply would
-    otherwise replace the review as the printed result.
-  - Codex: `codex exec -s read-only --ephemeral`.
-
-  Every run spends host plan quota, and fixture files are never modified.
-- The review must end with a JSON block of findings. A defect is found when a
-  finding names its file within 3 lines of the snippet. A fixture is
-  `detected` when every planted defect is found and `partial` when only some
-  are; layer totals count defects, not fixtures. A control with
-  any blocking finding is a `false-positive`; its `blocking` list gives each
-  finding's file, line and summary so the cause can be checked. Unreadable replies are
-  `unparsed`.
-- The scored skill is the installed host skill, so run `skills install --write`
-  first.
+## Hooks
 
 ### `scripts/minime git-hook install|uninstall`
 
@@ -241,7 +175,9 @@ Behavior:
   blocked (exit 2) unless it asks exactly one question with at least two
   options, the question contains `Default if no reply:`, and every option
   description contains `Pros:`, `Cons:` and `Locks in:` (case-insensitive),
-  the `minime-decision-prompt` shape. Install widens an earlier `Bash`-only
+  and no text outside an option's `Affects:` cites a workflow item by number
+  or code (such as `Decision 13`, `item 6`, `Q7`, `M3`, `REQ-005`), the
+  `minime-decision-prompt` shape. Install widens an earlier `Bash`-only
   matcher in place, but keeps a customized or shared one and prints a note.
 - When a turn ends, the `Stop` hook blocks once (exit 2, with a message to the
   agent) if the turn loaded a MiniMe skill and its last main-thread reply does
@@ -274,6 +210,104 @@ Behavior:
 - Codex runs a user-level hook only after you trust it in `/hooks`, and again
   after its definition changes.
 
+## Audits
+
+### `scripts/minime host-registration-audit`
+
+Audits host/user-level MiniMe skill registration without reading or writing any
+product repo.
+
+```sh
+scripts/minime host-registration-audit
+scripts/minime host-registration-audit --skills-root /path/to/host/skills --json
+```
+
+Behavior:
+
+- Defaults to the first existing skills root in the host table
+  (`~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
+  `~/.copilot/skills`).
+- Use `--skills-root` to audit a specific surface.
+- Verifies every `target-reusable` skill has a host-level wrapper
+  directory containing a regular installed `SKILL.md` file and
+  `agents/openai.yaml`.
+- Verifies installed `SKILL.md` content matches the matching MiniMe skill file,
+  and that installed `references/` holds exactly the source references.
+- Blocks symlinked `SKILL.md` wrappers because current Codex user-skill
+  discovery does not load them.
+- Blocks extra `minime` or `minime-*` host entries that are not in the target-reusable
+  manifest.
+- Requires generated metadata to match MiniMe's canonical output, including
+  display name, short description and default prompt. Metadata links/nonfiles
+  are blocked. Empty, malformed or different content is reported stale.
+- A filesystem pass does not prove fresh host discovery or workflow outcomes.
+- Writes nothing.
+
+### `scripts/minime transparent-audit --repo <path>`
+
+Audits one or more product repos for transparent MiniMe consumption.
+
+```sh
+scripts/minime transparent-audit --repo /path/to/product-repo
+scripts/minime transparent-audit --repo /path/to/repo-a --repo /path/to/repo-b --json
+```
+
+Behavior:
+
+- Reads target repos without writing to them.
+- Blocks textual MiniMe references.
+- Blocks symlinks that point to MiniMe.
+- Blocks known MiniMe skill names in inspected text; renamed copied bodies are not detected.
+- Skips common generated/vendor directories such as `.git`, `node_modules`,
+  `.venv`, `vendor`, `dist`, and `build`.
+- Reads at most 512,001 bytes per regular file, inspecting the first 512,000
+  bytes decoded as UTF-8 with replacement for invalid sequences.
+- Excludes binary files (NUL in the first 2,048 bytes), non-regular files and
+  symlink contents. Symlink targets are checked without following their contents.
+- Oversized text, file/entry/symlink access failures and directory traversal
+  errors produce `inspection-incomplete` findings and block the repo and overall
+  result (exit 1). Detectable references in a truncated prefix are still reported.
+- A pass means no findings within this inspection scope. It does not establish
+  complete isolation; manually review instructions for renamed workflow copies.
+
+### `scripts/minime transcript-audit`
+
+On-demand, read-only scan of local Claude Code and Codex transcripts for MiniMe
+skill use, token counts and observable contract misfires (Decision 10).
+
+```sh
+scripts/minime transcript-audit
+scripts/minime transcript-audit --since 2026-10-07 --json
+```
+
+Behavior:
+
+- Reads `~/.claude/projects` and `~/.codex/sessions` (override with
+  `--claude-root` / `--codex-root`), including the `.jsonl.zst` files Codex
+  compresses older rollouts into; OpenCode and Copilot are not parsed.
+- Counts MiniMe skill loads per skill: slash commands, Skill-tool calls,
+  injected `<skill>` blocks, `$minime*` mentions and reads of a `SKILL.md`.
+- Flags, once per turn: `no-next-action`, `next-action-unformatted`,
+  `prose-question` (Claude only), `commit-unverified` (no test or check command
+  earlier in the turn or since the previous commit) and
+  `commit-without-commit-skill`.
+- Reports token counts (`input`, `cache_read`, `cache_write`, `output`) per
+  host, split between the main context and subagent transcripts (Claude Code
+  only; Codex sessions all count as main). Claude Code records that repeat a
+  message's usage are counted once; Codex usage comes from increases in its
+  cumulative totals. Pricing, and cost per gated change, are measured with the
+  maintainer's local tooling, which is not published (REQ-010).
+- Excludes `review-eval` runs, recognized by a prompt that starts with the
+  review-eval prompt, and the subagents they fork; their count is reported per
+  host.
+- `--since` takes a date or a datetime; a datetime with an offset is converted
+  to UTC, the time zone of transcript timestamps.
+- Findings are heuristics; verify each one in the transcript before acting.
+- Projects are reported as `project-N` and sessions as an 8-character id. No
+  paths or message text are printed. Writes nothing.
+
+## Developing skills
+
 ### `scripts/minime skills list`
 
 Lists local MiniMe skills from `skills/*/SKILL.md`.
@@ -289,63 +323,6 @@ Shows `name`, `minime_kind`, `path`, and `description` for each skill. Human
 output includes a `Blocked entries` section for skills with invalid or missing
 frontmatter metadata. `--json` includes both valid `skills` and
 `blocked_entries` with stable error codes.
-
-### `scripts/minime skills install`
-
-Install MiniMe skills as wrapper directories for universal host-level routing.
-Dry-run by default; `--write` required to apply changes.
-
-```sh
-scripts/minime skills install
-scripts/minime skills install --write
-scripts/minime skills install --write --force
-scripts/minime skills install --json
-```
-
-Behavior:
-
-- Discovers all `target-reusable` skills via the catalog.
-- Without `--skills-root`: installs to every known surface that exists —
-  `~/.codex/skills`, `~/.claude/skills`, `~/.config/opencode/skills`,
-  `~/.copilot/skills`. `~/.agents/skills` is intentionally
-  excluded because current Codex scans it in addition to `~/.codex/skills`,
-  which duplicates every MiniMe skill in Codex.
-- `--skills-root <path>` restricts installation to a single explicit surface.
-- Blocks the entire batch when any catalog entry has invalid metadata/source
-  paths, or a reusable source fails local-path/secret-pattern contamination checks.
-- Catalog and preflight require a 1–64 character lowercase ASCII alphanumeric
-  name with single separating hyphens, matching its directory; description must
-  be nonempty and at most 1024 characters. Duplicate fields are rejected.
-- The narrow parser supports plain scalars, single-quoted name/description and
-  JSON double-quoted name/description; general YAML/multiline blocks are not
-  supported. Quoted empty descriptions remain invalid.
-- Validates all selected surface roots and wrapper destinations before writing.
-  A destination rejection cancels all writes, including earlier surfaces.
-- Blocks symlinked `agents/` or `agents/openai.yaml` and incompatible path types,
-  even with `--force`. Metadata updates replace the file so hardlinked sibling
-  files are not overwritten. Supported wrapper/SKILL.md link migrations unlink
-  the link itself, preserving its target.
-- Prevalidation covers known invalid inputs; unexpected I/O failures/concurrent
-  filesystem mutation do not have a transactional rollback guarantee.
-- Without `--write`: prints what would be created, updated, skipped, or blocked.
-- With `--write`: creates wrapper directories in each surface root. Each wrapper
-  contains a regular installed `SKILL.md` file, a generated
-  `agents/openai.yaml` for agent compatibility, and a copy of the skill's
-  `references/` when it has one. In a `.claude/skills` root, a skill whose
-  metadata declares `minime_context: fresh` gets `context: fork`,
-  `background: false` and `model: sonnet` (tier `fast`) or `inherit` added to
-  its frontmatter, so Claude Code runs it in a subagent; the registration audit
-  expects the same text. References must be regular `.md` files in a
-  flat directory. Installed references are MiniMe-owned: stale or extra files
-  are replaced or removed.
-- Metadata-only drift is refreshed without `--force`. Generated metadata is
-  MiniMe-owned: byte differences, including local edits or alternate formatting,
-  are stale. Dry-run reports an update; repeated writes are idempotent.
-- Re-running with `--write` updates stale installed `SKILL.md` files and
-  converts MiniMe's older symlinked `SKILL.md` wrappers to regular files.
-- `--force`: migrate old-format directory symlinks and overwrite stale entries.
-- Old-format directory symlinks (pre-wrapper-dir) are reported as conflicts
-  until migrated with `--write --force`.
 
 ### `scripts/minime skills install-check <skill-path>`
 
@@ -396,8 +373,47 @@ Behavior:
   the full source descriptor under `source`.
 - Writes nothing.
 
-## Test Suite
+### `scripts/minime review-eval`
+
+Scores headless reviews of planted-defect fixtures (Decisions 9/11).
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
+scripts/minime review-eval --host claude
+scripts/minime review-eval --host claude --skill doc-check --run --model sonnet
+scripts/minime review-eval --host codex --run --json
+scripts/minime review-eval --host claude --run --model <model> --effort <level> --layer python
+scripts/minime review-eval --host codex --run --tier hard --model <model>
 ```
+
+Behavior:
+
+- `--skill` picks the skill scored: `code-reviewer` (default) on
+  `evals/review/`, or `doc-check` on `evals/doc-check/`, whose defects are
+  stale lines, often in documents the change left untouched (Decision 14).
+- Fixtures live in `evals/<skill root>/<layer>/`. Each layer has a `base/` project,
+  and each fixture has a `change/` overlay plus an `expected.json` answer key.
+  Defect keys locate the planted defect by a text snippet, or list several
+  planted defects under `defects`. Controls carry no defect. An `uncovered` key
+  expects the review to report the stack as having no profile. `"tier": "hard"`
+  marks fixtures built to tell model tiers apart (larger diffs, several defects,
+  plausible invented APIs, tests that pass without the change); `--tier` runs
+  one tier only.
+- Without `--run`, it lists the fixtures and invokes nothing. With `--run`, it
+  copies each base and overlay into a temporary git repo, so the change is the
+  uncommitted diff. It then runs one review per fixture, in parallel (`--jobs`,
+  default 4):
+  - Claude Code: `claude -p` with installed hooks disabled, restricted to read,
+    search, skill and `git diff` tools. A `Stop` hook's added reply would
+    otherwise replace the review as the printed result.
+  - Codex: `codex exec -s read-only --ephemeral`.
+
+  Every run spends host plan quota, and fixture files are never modified.
+- The review must end with a JSON block of findings. A defect is found when a
+  finding names its file within 3 lines of the snippet. A fixture is
+  `detected` when every planted defect is found and `partial` when only some
+  are; layer totals count defects, not fixtures. A control with
+  any blocking finding is a `false-positive`; its `blocking` list gives each
+  finding's file, line and summary so the cause can be checked. Unreadable replies are
+  `unparsed`.
+- The scored skill is the installed host skill, so run `skills install --write`
+  first.

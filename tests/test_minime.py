@@ -1666,6 +1666,21 @@ class AgentHookCLITests(unittest.TestCase):
             ("a non-dict question", [minime], ["Pick?"], 2, "exactly one question"),
             ("lower-case markers", [minime], [question("pick? default if no reply: A", [
                 option("A", "pros: x; cons: y; locks in: z"), option("B")])], 0, ""),
+            ("a numbered item in the question", [minime], [question("Take item 6? Default if no reply: stop.")],
+             2, "'item 6' by number"),
+            ("a code in a label", [minime], [question(options=[option("Finish M3"), option("B")])], 2, "'M3'"),
+            ("a code in a description", [minime], [question(options=[
+                option("A", "Pros: closes Q7. Cons: b. Locks in: nothing."), option("B")])], 2, "'Q7'"),
+            ("a requirement code", [minime], [question("Drop REQ-005? Default if no reply: stop.")], 2, "'REQ-005'"),
+            ("a code in the header", [minime], [{**question(), "header": "Q7"}], 2, "'Q7'"),
+            ("a location in Affects", [minime], [question(options=[
+                option("A", "Pros: a. Cons: b. Locks in: nothing. Affects: docs/decisions.md:229, REQ-005"),
+                option("B")])], 0, ""),
+            ("a code after Affects", [minime], [question(options=[
+                option("A", "Affects: docs/plan.md:3. Pros: closes Q7. Cons: b. Locks in: nothing."),
+                option("B")])], 2, "'Q7'"),
+            ("version numbers, libraries and plain words", [minime], [question(
+                "Pin Python 3.14, gpt-6.1 and d3.js for the next step? Default if no reply: stop.")], 0, ""),
         ]
         with tempfile.TemporaryDirectory() as d:
             transcript = Path(d) / "t.jsonl"

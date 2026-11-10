@@ -11,7 +11,7 @@ goals (Decision 1) are:
 
 The user is a single author on a budget plan directing agents to write nearly
 all of the code; quality keeps slop from compounding cost and keeps projects
-fit to share (Decisions 1/2, amended 2026-10-30).
+fit to share (Decisions 1/2).
 
 Skills install at host/user level, and Python 3.14+ is required. Planted-defect
 fixtures, not formal comparison trials, evidence the bar (Decision 9).

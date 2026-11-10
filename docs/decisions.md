@@ -11,7 +11,10 @@ current position.
 - Status: accepted.
 - Context: MiniMe exists so AI coding agents produce work the user does not
   have to audit line by line, without wasting tokens, across the agent hosts
-  the user works in.
+  the user works in. The primary use is single-author vibe coding: the user
+  directs and the agent writes nearly all of the code. Slop compounds the cost
+  and complexity of later progress and maintenance, and a vibe-coded project,
+  MiniMe included, may be shared or open-sourced.
 - Decision: three ranked goals.
   - Primary: an explicit anti-slop, production-quality bar that an agent meets
     without the user catching its defects (REQ-003).
@@ -25,40 +28,27 @@ current position.
   undefined and cost unmanaged.
 - Consequences: requirements, milestones and gate changes are judged against
   these goals in this order.
-- Amendment (2026-10-30): the primary use is single-author vibe coding — the
-  user directs and the agent writes nearly all of the code. The quality bar
-  exists for two reasons: slop compounds the cost and complexity of later
-  progress and maintenance, and a vibe-coded project may be shared or
-  open-sourced, so its author should not be ashamed of it — MiniMe itself
-  included. The ranking is unchanged: quality first, cost second,
-  portability third.
 
 ## Decision 2 — Individual cross-project use
 
 - Status: accepted.
 - Context: the skills serve one developer's work across many projects.
-- Decision: optimize for an individual developer installing MiniMe at user
-  level. Marketplace, enterprise and team-administration infrastructure is out
-  of scope.
+- Decision: optimize for an individual developer on a budget plan of each host,
+  installing MiniMe at user level. Marketplace, enterprise and
+  team-administration infrastructure is out of scope.
 - Alternatives: team distribution adds onboarding, migration and support
   obligations without a current need.
 - Consequences: validation targets the verified hosts and representative
   tasks; installation correctness and reproducible checks remain required.
-- Amendment (2026-10-30, extended 2026-10-31): the individual is assumed to
-  be on a budget plan of each host (Claude, ChatGPT, and potentially other
-  CLIs or agents), so quality evidence must eventually cover each budget
-  configuration, not only the maintainer's. On Claude Code that means two
-  session models: Opus 5.5, which the Pro plan includes (it has no Fable) and
-  which the Max plan falls back to at its Fable cap (currently half the plan
-  quota); and Fable, on the Max plan until then. On Codex it means
-  `gpt-6.1-sol`, which the cheapest ChatGPT plan with Codex includes; the
-  cheaper `gpt-6-luna` fails review detection and is not a budget
-  configuration. Review detection passes on both hosts' budget
-  configurations (plan, Review baseline). MiniMe's
-  own complexity is a standing risk to this audience: it must stay reliable
-  and maintainable without taxing target-project progress or expense. The
-  DRY/YAGNI invariants, `minime-design-simplifier` passes and the plan's
-  temporary-instrumentation table are the standing guards.
+  Quality evidence covers each host's budget configuration (plan, Review
+  baseline): on Claude Code the Opus 5.5 and Fable session models (the Pro
+  plan has Opus 5.5 only; the Max plan runs Fable until its cap, then Opus
+  5.5); on Codex `gpt-6.1-sol`, which the cheapest ChatGPT plan with Codex
+  includes (`gpt-6-luna` fails review detection and is not a budget
+  configuration). MiniMe's own complexity is a standing risk to this audience:
+  it must stay reliable and maintainable without taxing target-project progress
+  or expense. The DRY/YAGNI invariants and `minime-design-simplifier` passes
+  guard it.
 
 ## Decision 3 — Host-level consumption, no trace in consuming repos
 
@@ -123,19 +113,14 @@ current position.
   verification) applies only when every changed file is documentation and no
   requirement, decision, acceptance or safety text changes. Everything else
   runs the full tier (doc-sync, scope, simplification, review, verification,
-  commit). When in doubt, use the full tier. Reflection writes a learnings
-  entry only when it produces an action; session checkpoints are written only
-  at handoffs.
+  commit). When in doubt, use the full tier. The strictest applicable rule
+  wins: a user, memory or project-guide rule that requires a check the tier
+  skips overrides the tier. Reflection writes a learnings entry only when it
+  produces an action; session checkpoints are written only at handoffs.
 - Alternatives: any doc change qualifying (requirement edits skip review); a
   diff-size threshold (a one-line safety change skips review).
 - Consequences: applies to MiniMe (`AGENTS.md`, `minime-self-commit`) and to
   consumers through `minime-project-commit`.
-- Amendment (2026-11-09): the light tier also runs simplification, which still
-  finds redundant text in documentation diffs; only review is skipped. The
-  strictest applicable rule wins, so a user, memory or project-guide rule that
-  requires a skipped check overrides the tier. A target-project report showed
-  an agent skipping the simplifier on a spec diff that added defaults, which
-  needed the full tier anyway.
 
 ## Decision 8 — No personal data or other-project references
 
@@ -175,7 +160,7 @@ current position.
 - Decision: an on-demand, read-only `transcript-audit` command parses local
   Claude Code and Codex transcripts for MiniMe skill loads, token counts and
   observable contract misfires. Pricing and cost per gated change are
-  maintainer-local tooling, not published (amended 2026-11-07): they serve
+  maintainer-local tooling, not published: they serve
   only MiniMe's own development. Nothing is collected automatically, stored or
   sent; reports use placeholders (Decision 8).
 - Alternatives: scripted scenario runs on a sample repo (costly and
@@ -227,56 +212,42 @@ current position.
 - Status: accepted.
 - Context: transcript audits showed that skipped framework rules are the main
   real-world slop. Agents follow a skill in the turn that loads it, and
-  nothing brings the commit procedure back several turns later, so most agent
-  commits ran without it.
+  nothing brings it back several turns later: commits ran without the commit
+  procedure or its checks, turns dropped the next action, questions lost their
+  shape, and a compacted session kept only the hook-checked rules.
 - Decision: `scripts/minime claude-hook|codex-hook install --write` copies
-  `scripts/commit-gate` to a user-level directory and registers it as a
-  `PreToolUse` hook for Bash (and, in Claude Code, `AskUserQuestion`; see the
-  amendments) in `~/.claude/settings.json` or `~/.codex/hooks.json`. It
-  blocks a `git commit` when the session has loaded a MiniMe skill but the
-  current turn has not loaded `minime-project-commit` or `minime-self-commit`.
-  Sessions with no MiniMe skill are never blocked.
+  `scripts/commit-gate` to a user-level directory and registers it in
+  `~/.claude/settings.json` or `~/.codex/hooks.json`. Sessions that have not
+  loaded a MiniMe skill are never blocked. In the others:
+  - `PreToolUse` on Bash blocks a `git commit` unless the current turn loaded
+    `minime-project-commit` or `minime-self-commit` and the check skills:
+    doc-sync (or doc-check), scope-boundary, simplifier and reviewer. A turn
+    whose latest line-leading `Commit tier:` statement says `light` may skip
+    the reviewer. Messages queued mid-turn are attachments, not new turns, so
+    checks run before one still count.
+  - Claude Code only: `PreToolUse` on `AskUserQuestion` requires one question
+    per call, `Default if no reply:` in the question, `Pros:`, `Cons:` and
+    `Locks in:` in each option, and no workflow item cited by number or code
+    ("Decision 13", "Q7", "M3") outside an option's `Affects:`.
+  - Claude Code only: the `Stop` hook blocks once when a turn that loaded a
+    MiniMe skill ends without `Recommended next action:` (progress updates
+    included), or when its last prose line before that is a question and the
+    turn did not use the choice UI. After a compaction it also blocks each
+    stop once until a reply starts a line with `Ledger:`.
+  - Claude Code only: on `SessionStart` with the `compact` matcher it reminds
+    the agent that the loaded MiniMe skills are still in force.
 - Alternatives: a reminder from the slop-scan hook (cannot tell an agent from
   the user); skill wording only (relies on the instruction-following that
-  fails).
+  fails); receipt files keyed to the staged tree (the agent writes them
+  itself, so they prove no more than the transcript and add a write step to
+  every check skill).
 - Consequences: one skill read per committing turn. The hooks edit host
   settings, adding or removing only their own entry. The installed hook
   duplicates a little transcript parsing so it runs without the MiniMe repo.
-  Codex runs it only after the user trusts it in `/hooks`.
-- Amendment (2026-10-20): in Claude Code the same script is also a `Stop`
-  hook. A turn that loaded a MiniMe skill may not end without `Recommended
-  next action:`, progress updates included; the hook blocks once and the agent
-  adds the line. Transcripts showed late-session turns dropping the line.
-  Codex is not covered until its stop-hook support is checked.
-- Amendment (2026-11-09): the commit turn must also load the check skills:
-  doc-sync (or doc-check), scope-boundary, simplifier and reviewer. A turn whose
-  latest line-leading `Commit tier:` statement says `light` may skip the
-  reviewer; the hook trusts that statement because it cannot judge a diff's
-  content. A target-project report
-  showed an agent that loaded the commit skill but skipped its checks. The hook
-  sees that a skill was loaded, not that it was followed. Receipt files keyed
-  to the staged tree were rejected: the agent writes them itself, so they
-  prove no more than the transcript and add a write step to every check skill.
-  Messages queued mid-turn are attachments, not new turns, so checks run
-  before one still count.
-- Amendment (2026-11-09, question rules): in Claude Code the hook also gates
-  `AskUserQuestion` in MiniMe sessions: one question per call, `Default if no
-  reply:` in the question, and `Pros:`, `Cons:` and `Locks in:` in each option.
-  The `Stop` hook also bounces a turn whose last prose line before the next
-  action is a question, unless the turn used the choice UI. Transcripts from
-  2026-11-01 to 2026-11-07 showed 11 of 187 choice-UI calls asking several
-  questions, and a target-project report
-  showed the shape's default and citations dropping out when squeezed into
-  the UI's fields. Marker checks prove the fields are present, not that their
-  content is sound. Codex has no choice UI to gate.
-- Amendment (2026-11-09, compaction): a target-project report showed a
-  compacted session keeping only the hook-checked rules; the summary presents
-  loaded skills as background, so the ledger, menus and sub-skill reads
-  stopped. In Claude Code the hook now also runs on `SessionStart` with the
-  `compact` matcher, whose stdout becomes context, and reminds the agent that
-  the loaded MiniMe skills are still in force. Until a reply starts a line
-  with `Ledger:`, the `Stop` hook blocks each stop once. The marker shows a
-  ledger exists, not that it is right. Codex is not covered.
+  It proves a skill was loaded and markers are present, not that the skill was
+  followed or the content is sound, and it trusts the tier statement because
+  it cannot judge a diff. Codex runs it only after the user trusts it in
+  `/hooks`, and has no stop, choice-UI or compaction coverage.
 
 ## Decision 14 — Installer-generated host adapters
 
@@ -286,9 +257,18 @@ current position.
 - Decision: skills name a tier and a context (fresh or main) for each step. The
   installer generates a host-specific adapter from the host-capability table,
   as it already generates `agents/openai.yaml`, mapping each tier to that
-  host's subagent, model, effort and headless command.
+  host's subagent, model, effort and headless command. A tier takes effect
+  only for a fresh-context skill; an inline skill runs on the session model,
+  so its tier records the work's difficulty for a later fork. A skill is a
+  fork candidate when its input fits an argument, it returns a verdict without
+  asking the user mid-procedure, it reads many files, and fixtures show
+  detection holds on the fork's tier. A fork stays only while priced cost per
+  gated change falls and the misfire counts do not rise (plan, Cost baseline).
 - Alternatives: portable prose only (each session guesses the mapping); drop
-  `model_tier` (leaves the cost goal without a lever).
+  `model_tier` (leaves the cost goal without a lever). For the doc audit:
+  fork all of `minime-doc-sync` (breaks the questions its other scopes ask);
+  fork one scope through new installer metadata (a new adapter mechanism for
+  one caller).
 - Consequences: the installer grows, and tier mappings, like the
   maintainer's local list-price table, must keep pace with new models and
   prices. A fresh-context skill only forks when its caller invokes it through
@@ -296,29 +276,14 @@ current position.
 - Current scope: `minime-code-reviewer` and `minime-doc-check` declare
   `model_tier: fast` and `minime_context: fresh`. Into `~/.claude/skills` the
   installer adds `context: fork`, `background: false` and `model: sonnet`;
-  other hosts get the source unchanged, because the cheaper Codex model missed a hard-tier
-  defect. The mapping lives in the host-capability table (REQ-011), so another
-  host gains an adapter by declaring its fork entry there.
-- Amendment (2026-10-20): a tier takes effect only for a fresh-context skill;
-  an inline skill runs on the session model, so its tier records the work's
-  difficulty for a later fork. A skill is a fork candidate when its input fits
-  an argument, it returns a verdict without asking the user mid-procedure, it
-  reads many files, and fixtures can measure it. The `diff` scope of
-  `minime-doc-sync`, report-only with risky updates returned to the caller, is
-  the next candidate; it becomes fresh-context on the fast tier only after
-  planted stale-doc fixtures show detection holds there (done; see below).
-- Amendment (2026-10-25): those fixtures passed on Sonnet 5.5 as on Opus 5.5.
-  A fork covers a whole skill, and `minime-doc-sync`'s `document` and `all`
-  scopes and apply mode surface updates to the user, so the report-only diff
-  audit moves into `minime-doc-check` (fast tier, fresh context). The `diff`
-  scope of `minime-doc-sync` invokes it through the host's skill mechanism and
-  applies or surfaces its findings in the main session, so commit gates still
-  name `minime-doc-sync`. Alternatives: fork all of `minime-doc-sync` (breaks
-  the questions its other scopes ask); fork one scope through new installer
-  metadata (a new adapter mechanism for one caller). Cost: one more skill to
-  install and keep in step. Keep the fork only if priced cost per gated change
-  falls and the misfire counts do not rise. Measured 2026-10-31: both held, so
-  the fork stays (plan, Cost baseline).
+  other hosts get the source unchanged, because the cheaper Codex model missed
+  a hard-tier defect. `minime-doc-check` is the report-only diff audit split
+  out of `minime-doc-sync`, whose `diff` scope invokes it through the host's
+  skill mechanism and applies or surfaces its findings in the main session, so
+  commit gates still name `minime-doc-sync`. Verification stays inline: the
+  reviewer fork showed no saving to copy. The mapping lives in the
+  host-capability table (REQ-011), so another host gains an adapter by
+  declaring its fork entry there.
 
 ## Decision 15 — One CLI or agent per session
 

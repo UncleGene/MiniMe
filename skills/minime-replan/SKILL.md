@@ -11,7 +11,8 @@ metadata:
 
 Apply a surgical change to an active project plan. Treat the plan as a living
 artifact, not a regenerated document. Mutate only what the change affects,
-preserve completed work, and emit the next concrete implementation step.
+keep only the completed work the rest of the plan depends on, and emit the
+next concrete implementation step.
 
 ## When to use
 

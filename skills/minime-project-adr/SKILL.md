@@ -10,32 +10,38 @@ metadata:
 # minime-project-adr
 
 
-Maintain append-only architecture and product decisions. Use when
+Maintain the architecture and product decisions in force. Use when
 implementation direction, architecture, authority policy, role boundaries,
 data model strategy, provider strategy, or safety constraints change.
 
-Do not delete or overwrite existing decisions; always supersede.
+The decision record holds only decisions in force. When a decision that
+overrides an earlier one is accepted, remove the earlier one, or the
+overridden part, in the same change; git history keeps it. While the new
+decision is only proposed, the earlier one stays in force.
 
 ## Procedure
 
 1. Read every earlier decision that governs the same behavior, not only the
-   one this may supersede, and state for each whether the new decision
-   supersedes it or is compatible with it. Mark a superseded one and add a
-   Superseded By pointer; stop on a conflict the new decision does not
-   supersede.
+   one this may override, and state for each whether the new decision
+   overrides it or is compatible with it. On acceptance, remove an
+   overridden one, or trim a partly overridden one to what still holds; keep
+   the remaining IDs stable and never reuse a removed ID. Add one line to the
+   new Context ("Replaces Decision N: ..."). Stop on a conflict the new
+   decision does not override.
 2. Assign the next sequential ID.
 3. Draft the decision with the required fields below. Context must name the
    pressure, constraint, or tradeoff that forced the decision. Consequences
    must include downsides and follow-up obligations.
 4. Evaluate alternatives honestly against the stated pressure; do not
    present familiarity or convenience as technical merit.
-5. Apply the project's quality guard on new or superseding decisions before
+5. Apply the project's quality guard on new or overriding decisions before
    downstream architecture, plan, or implementation work.
-6. List downstream updates required.
+6. List downstream updates required. Repoint every reference to a removed
+   decision ID to the decision that replaced it, or drop it, so none dangles.
 
 ## Required fields
 
-- Status: proposed | accepted | superseded
+- Status: proposed | accepted
 - Date
 - Context: the pressure, constraint, or tradeoff that forced the decision
 - Decision: what was decided
@@ -51,8 +57,9 @@ Do not delete or overwrite existing decisions; always supersede.
 - Do not justify technology purely by familiarity when technical constraints
   are claimed.
 - If code already exists, state whether the decision is confirming,
-  superseding, or correcting it — do not reverse-engineer a justification.
-- Do not rewrite history; supersede decisions when they are no longer valid.
+  overriding, or correcting it — do not reverse-engineer a justification.
+- The decision record is a workflow doc: write it for agent consumption
+  (see `minime-doc-sync` rules).
 - Treat the project's stack constraints as durable decisions unless the user
   changes them.
 - When the choice has more than one defensible direction, escalate to a

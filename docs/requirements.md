@@ -193,8 +193,7 @@ Links: Decisions 8/10; REQ-001/003/006.
 ## REQ-010 — Cost-appropriate execution
 
 Status: active; Claude Code review and doc check run forked on the fast tier;
-intake and questions scale with one risk scale (Decision 16); model and effort
-routing accepted 2026-11-01; scale-to-risk accepted 2026-11-07. Cost is
+intake and questions scale with one risk scale (Decision 16). Cost is
 measured with the maintainer's local tooling, not published (Decision 10).
 Type: core. Priority: high.
 

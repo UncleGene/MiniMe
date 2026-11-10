@@ -59,13 +59,14 @@ ambiguous rather than guessing.
 5. **Status truthfulness:** "complete" items meet acceptance; "planned" items
    are not already shipped. Route status changes to `minime-project-milestone`.
 6. **Clarity:** ambiguous or contradictory claims, TODO/FIXME, duplicated or
-   orphaned sections, dead links.
+   orphaned sections, dead links; a workflow doc carrying history, achieved
+   items or human-oriented narrative.
 7. **Procedure executability:** referenced scripts exist and flags and outputs
    match the current tooling.
-8. **Decisions and traceability:** superseded decisions name successors; new
-   behavior is backed by a decision; every active requirement links to a
-   decision, architecture section, milestone, test or code. Record missing
-   links; never fabricate a requirement or decision to close one.
+8. **Decisions and traceability:** no decision that an accepted one replaces
+   remains; new behavior is backed by a decision; every active requirement
+   links to a decision, architecture section, milestone, test or code. Record
+   missing links; never fabricate a requirement or decision to close one.
 9. **Classify** findings as blocking (contradiction, false claim, broken
    authority, missing decision), consistency, clarity or currency.
 10. In `apply` mode, fix consistency, clarity and currency findings; surface
@@ -77,12 +78,18 @@ ambiguous rather than guessing.
 - Never change a number, path, flag, status or claim without verifying the new
   value against current code, tests or the diff. Cite `path:line`.
 - Never remove content that may still be accurate, or a whole section, without
-  approval.
+  approval. Removing a plan item the record marks achieved, or a decision an
+  accepted one replaces, needs no further approval; git history keeps it.
 - When docs conflict, surface the question; do not silently pick a side.
-- Never silently rewrite a superseded decision or load-bearing rule; route to
+- Never silently rewrite a decision or load-bearing rule; route to
   `minime-project-adr`.
-- Never collapse two docs with real audiences (human-facing README, agent-facing
-  guide); reduce duplication by linking.
+- Two doc kinds. User-facing docs (README, guides, CLI reference) serve human
+  readers. Workflow docs (plan, decisions, requirements, specs, architecture
+  snapshot, agent guide) serve agents continuing the work: terse, structured,
+  current state only, no narrative, history or session provenance; git
+  history keeps the past.
+- Never collapse a user-facing and a workflow doc; reduce duplication by
+  linking.
 - A broken reference may mean the target moved; read the target before editing.
 - Do not paraphrase a load-bearing rule for clarity unless it is ambiguous.
 

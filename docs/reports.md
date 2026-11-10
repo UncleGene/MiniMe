@@ -1,6 +1,9 @@
-# Reports
+# JSON reports
 
-Commands that take `--json` print a structured report.
+Commands run with `--json` print one JSON report to standard output, for
+scripts and agents. Each report carries a `schema_version`; this page lists
+the fields you can rely on. Commands are described in the
+[CLI reference](cli.md).
 
 ## Skill Catalog Report
 

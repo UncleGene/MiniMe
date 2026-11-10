@@ -18,8 +18,9 @@ the agent's fix ends the turn.
 
 In Claude Code it also gates the choice UI (`AskUserQuestion`) in a session
 that loaded a MiniMe skill: one question per call, the question carries
-`Default if no reply:`, and each option's description carries `Pros:`, `Cons:`
-and `Locks in:` (the minime-decision-prompt shape).
+`Default if no reply:`, each option's description carries `Pros:`, `Cons:`
+and `Locks in:`, and no text outside an option's `Affects:` cites a workflow
+item by number or code (the minime-decision-prompt shape).
 
 After a compaction in a session that loaded a MiniMe skill, the Claude Code
 SessionStart hook (matcher `compact`) reminds the agent that those skills are
@@ -94,6 +95,11 @@ COMPACT_REMINDER = ("MiniMe: this session was compacted after loading {skills}. 
 CHOICE_UI = "AskUserQuestion"
 QUESTION_MARKER = "default if no reply:"
 OPTION_MARKERS = ("pros:", "cons:", "locks in:")
+# A workflow item cited by number ("Decision 13", "item 6") or upper-case code ("Q7", "M3", "REQ-005").
+NUMBERED_REF_RE = re.compile(r"\b(?:(?i:decision|requirement|milestone|item|question|step|phase|finding|"
+                             r"option|gate|rule|slice|task)s?\s+#?\d+|(?:REQ|ADR|DEC|[QRDM])-?\d{1,3})\b")
+# An option's `Affects:` text, up to the next shape marker.
+AFFECTS_RE = re.compile(r"affects:.*?(?=pros:|cons:|locks in:|$)", re.I | re.S)
 CHOICE_MESSAGE = ("MiniMe question gate: {problem}. Follow minime-decision-prompt: one question per "
                   "call, the question ends with `Default if no reply: <option or stop>`, and each "
                   "option description carries `Pros:`, `Cons:` and `Locks in:` (add `Affects:` "
@@ -273,6 +279,13 @@ def _choice_problem(questions: object) -> str:
         if missing:
             label = option.get("label", "?") if isinstance(option, dict) else "?"
             return f"option {label!r} lacks {', '.join(m.capitalize() for m in missing)}"
+    texts = [str(question.get(key, "")) for key in ("question", "header")]
+    for option in question["options"]:
+        texts += [str(option.get("label", "")), AFFECTS_RE.sub("", str(option.get("description", "")))]
+    for text in texts:
+        if match := NUMBERED_REF_RE.search(text):
+            return (f"it cites workflow item {match.group(0)!r} by number; say in plain words what it "
+                    "is (exact locations go only in `Affects:`)")
     return ""
 
 

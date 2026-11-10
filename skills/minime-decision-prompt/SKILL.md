@@ -68,11 +68,11 @@ Rules), which is stated instead of asked.
   cons, and impact even when the answer looks obvious.
 - If you cannot name a real con for an option, you have not understood it
   yet — restate.
-- Cite the artifacts each option affects (path:line or document section).
-- Write the question and every option so they read correctly with the dialog
-  seen alone: name what an identifier means (decision, requirement, question,
-  milestone or item number, version shorthand) the first time it appears,
-  e.g. "Decision 13 (agent commit gate)", never a bare "Q7" or "item 7".
+- Write the context, question and every option so they read correctly with
+  the dialog seen alone. Never cite a workflow item by number or code
+  (decision, requirement, question, milestone, item, step or finding: "Decision
+  13", "Q7", "M3", "item 6"); say in plain words what it is. Cite the artifacts
+  each option affects only in its `Affects:`, as path:line.
 - Two options is the default; add a third only when it is materially
   different.
 - A terse free-text reply ("go", "ok") approves the recommended option
@@ -94,7 +94,7 @@ Rules), which is stated instead of asked.
   when an artifact changes; the recommended option's label ends with
   `(Recommended)` and its description gives the confidence. Ask one question
   per call. In Claude Code an installed MiniMe hook rejects calls that miss
-  these markers.
+  these markers or cite a workflow item by number outside `Affects:`.
 
 ## Interaction rules
 

@@ -45,8 +45,9 @@ the project's own privacy tests and commit gates.
    Then remove obsolete roadmap items and superseded decisions — those the
    record marks replaced or overridden — rather than preserving them as
    history: a decision record keeps only the current decision and its
-   rationale. Confirm each removal through `minime-decision-prompt` (it is a
-   content deletion) and route decision edits through `minime-project-adr`.
+   rationale. These removals follow the `minime-doc-sync` removal rule; confirm
+   any other deletion through `minime-decision-prompt`, and route decision
+   edits through `minime-project-adr`.
    Docs must not contradict each other or expose abandoned roadmap
    generations.
 4. **README onboarding pass.** The README serves a new user of the project,

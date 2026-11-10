@@ -18,9 +18,11 @@ them.
 ## Procedure
 
 1. Identify which milestones, next tasks, or release gates are affected.
-2. Preserve completed or useful baseline work; label as baseline, partial,
-   in progress, or needs refactor.
-3. Realign future work only; do not erase completed history.
+2. Keep completed work only where continuing work depends on it (a baseline,
+   contract or known limit), stated as a current fact; label unfinished work
+   partial, in progress, or needs refactor.
+3. Realign future work. Remove achieved milestones and past items that
+   continuing work does not need; git history keeps them.
 4. Ensure every milestone has verifiable done criteria framed around user,
    operator, safety, or project value — not only code layers.
 5. Schedule risky unknowns and irreversible choices early enough that later
@@ -49,7 +51,9 @@ them.
 - Link to a checklist that already lives in another doc; do not restate it.
 - Leave out facts that go stale with the next commit (baseline SHAs, test
   or assertion counts) and session provenance ("the user selected ...").
-- Reflect status changes in the project log and relevant specs.
+- Reflect status changes in the plan and relevant specs.
+- The plan is a workflow doc: write it for an agent resuming the work
+  (see `minime-doc-sync` rules).
 - Use a handoff contract when consuming a spec to confirm it answers what
   the milestone needs.
 

@@ -48,7 +48,8 @@ Do not use when:
 3. **Find the gaps.** Score the idea against the readiness checklist. Mark
    each item answered, inferred (an assumption to confirm) or missing:
 
-   - Problem and value: who has the pain, how they cope today, why now.
+   - Problem and value: who has the pain, how they cope today, what anyone
+     has already done about it (time, money, a workaround), why now.
    - Users and context, including who is explicitly not served.
    - First-release capabilities and explicit non-goals.
    - Constraints: platform, language or stack, integrations, data, privacy
@@ -61,13 +62,18 @@ Do not use when:
    through `minime-decision-prompt`: propose two to four concrete answers
    derived from the idea, each with pros, cons and impact, recommended one
    first; the user may answer freely instead. Do not ask what the repo or
-   earlier answers settle. Stop when every item is answered, recorded as an
+   earlier answers settle. A choice the user asserted without weighing an
+   alternative (a named stack, platform or approach) gets one challenge from
+   the constraints already gathered, with no lookup; record the outcome with
+   the rejected alternative. Stop when every item is answered, recorded as an
    assumption, or deferred as an open question that does not block the first
-   milestone.
+   milestone. Before stopping, combine the answers and ask about any
+   consequence that no single answer shows.
 
 5. **Confirm the brief.** Present a compact brief in chat: problem, users,
    scope, non-goals, constraints, success criteria, assumptions, open
-   questions. Ask for approval or the item to revise. Do not write files
+   questions. Ask for approval or the item to revise. A revision is not
+   approval: show the changed item and ask again. Do not write files
    before approval. This holds when the brief is inferred from notes or
    code: an inferred brief is a proposal, not consent.
 

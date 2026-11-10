@@ -48,8 +48,8 @@ ID, command output). Mark each answer: adequate, gap, or unknown.
    prove the outcome. Name what would demonstrate the outcome.
 3. **Documentation.** Delegate to `minime-doc-sync` with `all` scope in
    report-only mode. Add: does an agent reading only active docs get one current direction,
-   or must it filter superseded roadmap history? Propose archiving history that
-   active docs still carry rather than deleting it.
+   or must it filter superseded roadmap history? Propose removing history that
+   active docs still carry; git history keeps it.
 4. **Design fit.** Delegate to `minime-design-simplifier` for YAGNI/KISS. Add:
    does each major component serve the goal from step 1? A component serving a
    superseded goal is a finding even if it is simple.
@@ -85,7 +85,8 @@ Then:
 - Do not bundle repairs into the assessment; a reviewed plan comes first.
 - Instruction-text or snapshot assertions passing is not evidence of outcomes.
 - Skill-size or similarity heuristics alone do not justify merging or deleting.
-- Archive superseded plans with a successor link instead of rewriting history.
+- Propose removing superseded plans and overridden decisions from active docs
+  rather than archiving them; git history keeps them.
 
 ## Output
 
