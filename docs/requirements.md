@@ -193,8 +193,10 @@ Links: Decisions 8/10; REQ-001/003/006.
 ## REQ-010 — Cost-appropriate execution
 
 Status: active; Claude Code review and doc check run forked on the fast tier;
-intake and questions scale with one risk scale (Decision 16). Cost is
-measured with the maintainer's local tooling, not published (Decision 10).
+intake and questions scale with one risk scale (Decision 16); in Claude Code
+a hook recommends a fresh session once context passes 300k tokens
+(Decision 17). Cost is measured with the maintainer's local tooling, not
+published (Decision 10).
 Type: core. Priority: high.
 
 Skills run each step at the lowest-cost model, effort level and context that

@@ -329,3 +329,40 @@ current position.
 - Consequences: an agent that misjudges a change as low gives it less intake
   scrutiny; commit gates still review it. Kept only if cost per turn falls and
   fixture detection and the misfire counts do not regress.
+
+## Decision 17 — Nudge toward a fresh session when context grows large
+
+- Status: accepted; implemented in the Claude Code hook, installed
+  2026-11-16 (plan, Fresh-session nudge).
+- Context: every request re-reads the whole conversation from the prompt
+  cache, so cost per turn grows with context size (REQ-010). From 2026-11-07
+  to 2026-11-14, Claude Code Opus 5.5 requests carrying over 300k context
+  tokens drew 67% of Opus list-price cost (over 600k alone: 30%). Resumes after
+  more than an hour idle, past Claude Code's one-hour cache lifetime, re-cached
+  10.2M tokens, about 5% of Opus cost. A restart pays only if it costs less
+  than the reads it saves: a handoff (median $2.34) plus `minime-orient`
+  ($0.35 to $1.17, ending at 54k to 130k context) is recovered after 25 to 103
+  further requests, depending on context size. Sessions stayed above 300k for
+  a median of 139 requests, and 23 to 33 of those 39 stretches ran past
+  break-even. The agent cannot see its own context size; the transcript
+  records it for each request.
+- Decision: in Claude Code, a MiniMe agent hook reads the last request's
+  context size from the transcript. When context exceeds about 300k tokens it
+  has the agent recommend a handoff (`minime-context-handoff`), then `/clear`
+  and `minime-orient`: after a commit, the Stop hook returns the turn once per
+  commit with that recommendation; on the first prompt after more than an hour
+  idle, a `UserPromptSubmit` hook adds it as context. It never blocks a tool
+  call or a commit, and the user runs `/clear`. The 300k threshold and the
+  one-hour idle trigger are the defaults the user accepted. Codex is out of
+  scope until its transcripts show the same cost pattern.
+- Alternatives: habit only (relies on noticing long sessions; Claude Code's
+  `/usage` on 2026-11-14 showed one session at 25 hours and 1,644 requests);
+  skill wording only (the agent cannot see its context size); forking
+  `minime-project-commit` to a cheaper model (it asks the user after the
+  commit and needs main-session context, failing the fork criteria
+  in Decision 14).
+- Consequences: one more hook to maintain. A fresh session loses working
+  memory the handoff does not capture. Kept only if the share of Opus cost
+  above 300k context falls and the median cost per gated turn and the misfire
+  counts do not rise in the local cost audit; the threshold is revisited with
+  that data.

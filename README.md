@@ -37,7 +37,8 @@ keeps a project you may later share or open-source fit to show.
   - an **agent commit gate** for Claude Code and Codex that stops an agent's
     `git commit` until it has loaded the commit procedure and its checks. In
     Claude Code it also makes the agent end each MiniMe turn with a next
-    action and ask choices through the choice dialog.
+    action and ask choices through the choice dialog, and recommends a fresh
+    session once the context grows past 300k tokens.
 - **Audits** that check host installation, confirm a project carries no
   MiniMe trace, and scan your local agent transcripts for skipped steps.
   Nothing is collected or sent anywhere.

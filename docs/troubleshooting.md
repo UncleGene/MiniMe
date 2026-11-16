@@ -151,6 +151,13 @@ skills in the same turn as the commit, then retry; the message names what is
 missing. Staging chained to a blocked commit (`git add ... && git commit`) did
 not run either, so the agent stages in its own call.
 
+**The agent recommends `/clear` after a commit or a long break.**
+This is the fresh-session nudge. Once a MiniMe session's context passes 300k
+tokens, every request re-reads it, so a handoff and a fresh session usually
+cost less. Run `/clear` and `/minime-orient`, or ignore it to keep the
+session; it comes back after the next commit or the next resume past an
+hour idle.
+
 **The Codex commit gate never fires.**
 Codex runs a user-level hook only after you trust it in `/hooks`, and again
 after the hook changes.

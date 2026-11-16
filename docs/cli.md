@@ -140,11 +140,11 @@ Behavior:
 
 - Install copies `scripts/commit-gate` to
   `~/.config/minime/claude-hooks/commit-gate` and adds a `PreToolUse` hook
-  for `Bash` and `AskUserQuestion`, a `Stop` hook and a `SessionStart` hook
-  for `compact` to `~/.claude/settings.json`. Other settings and hooks are
-  kept, reinstalling does not add second entries and widens an earlier
-  `Bash`-only matcher, and an unreadable settings file is refused. Uninstall
-  removes only those entries and the copied script.
+  for `Bash` and `AskUserQuestion`, a `Stop` hook, a `SessionStart` hook
+  for `compact` and a `UserPromptSubmit` hook to `~/.claude/settings.json`.
+  Other settings and hooks are kept, reinstalling does not add second entries
+  and widens an earlier `Bash`-only matcher, and an unreadable settings file
+  is refused. Uninstall removes only those entries and the copied script.
 - Before each Bash call, the gate checks for a `git commit` command. It blocks
   the commit (exit 2, with a message to the agent) when the session has loaded
   a MiniMe skill but the current turn has not loaded `minime-project-commit` or
@@ -191,6 +191,14 @@ Behavior:
   are still in force and the step-0 ledger is due. Until a main-thread reply
   starts a line with `Ledger:` (or `Orchestration ledger:`), the `Stop` hook
   blocks each stop once.
+- Fresh-session nudge (Decision 17), in a session that loaded a MiniMe skill
+  when the last main-thread request carried more than 300k context tokens:
+  the `Stop` hook blocks once at the end of a turn that ran a `git commit`
+  whose result was not an error, unless its last reply already mentions `/clear`; the
+  `UserPromptSubmit` hook adds context to a prompt sent more than an hour
+  after the last reply. Both ask the agent to recommend a handoff with
+  `minime-context-handoff`, then `/clear` and `/minime-orient`. Neither
+  blocks a tool call or a commit.
 
 ### `scripts/minime codex-hook install|uninstall`
 
@@ -203,8 +211,8 @@ scripts/minime codex-hook uninstall --write
 
 Behavior:
 
-- Same as `claude-hook` without the `Stop` and `SessionStart` hooks and the
-  `AskUserQuestion` gate, with the script in
+- Same as `claude-hook` without the `Stop`, `SessionStart` and
+  `UserPromptSubmit` hooks and the `AskUserQuestion` gate, with the script in
   `~/.config/minime/codex-hooks/commit-gate` and the entry in
   `~/.codex/hooks.json`.
 - Codex runs a user-level hook only after you trust it in `/hooks`, and again

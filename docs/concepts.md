@@ -133,9 +133,11 @@ in Claude Code it is also a `Stop` hook that keeps a MiniMe turn from ending
 without a recommended next action or on a prose question, and it rejects
 choice-UI calls that drop the decision-prompt shape. After a compaction it
 reminds the agent that loaded MiniMe skills are still in force and requires
-the step-0 ledger.
+the step-0 ledger. Once a session's context passes 300k tokens, it has the
+agent recommend a handoff and a fresh session after a commit or a resume past
+an hour idle, since every request re-reads the context.
 Both are copied to `~/.config/minime/` so they run without the MiniMe repo.
-Links: REQ-003; Decisions 12/13.
+Links: REQ-003/010; Decisions 12/13/17.
 
 ## Existing skill drift guards
 

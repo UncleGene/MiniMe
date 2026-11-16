@@ -23,6 +23,10 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
   alone (REQ-011).
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
   Claude Code and Codex. These and skill installation are the only CLI writes.
+- Claude Code question hooks (Decision 13) accepted 2026-11-16: in the week
+  after install, local transcripts show no multi-question choice-UI call
+  reaching the user in a MiniMe session (baseline 11 of 187; the hook blocked
+  2) and `prose-question` findings down from 3 to 0.
 - `transcript-audit` reports skill loads, token counts and observable contract
   misfires from local transcripts, excluding `review-eval` runs. Pricing and
   cost per gated commit are measured with the maintainer's local tooling, which
@@ -75,16 +79,14 @@ cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Measure whether the question rules stick. In Claude Code the agent hooks block
-a choice-UI call that asks more than one question, lacks the decision-prompt
-markers or cites a workflow item by number, and send a MiniMe turn that ends on
-a prose question back to the choice UI (Decision 13); Codex keeps the wording
-only. Once a week of sessions has run with the hook installed (from
-2026-11-09), run `transcript-audit` against the acceptance check below.
-Baseline, 2026-11-01 to 2026-11-07: of 187 choice-UI calls in 32 MiniMe
-sessions, 11 asked two or more questions and 80 came in a turn that had not
-loaded `minime-decision-prompt` (an upper bound: an earlier turn's copy may
-still be in context).
+Measure the fresh-session nudge, installed on 2026-11-16. First fix a
+`transcript-audit` miscount: it reports `no-next-action` for a turn whose last
+record is a tool call, i.e. a turn the user interrupted or cut short with a new
+prompt, where no reply was written and the Stop hook never ran. Such turns
+made up at least 4 of the 14 Claude Code findings from 2026-11-10 to
+2026-11-16 (2 the week before), so the nudge's "misfire counts do not rise"
+check needs the fix to compare like with like. Then, after 2026-11-23, run the
+local cost audit and `transcript-audit` against the nudge's acceptance check.
 
 ## Cost baseline
 
@@ -106,6 +108,14 @@ Claude Code `commit-unverified` 10 and `no-next-action` 3 in 65; Codex
 `no-next-action` 1 and `commit-unverified` 0 in 55, 18 of them copies a resumed
 session writes again.
 
+Opus 5.5 cost by context size per request, Claude Code, 2026-11-07 to
+2026-11-14, all projects: under 300k tokens 33.5%, 300k–600k 36.5%, over 600k
+30.1%. Resumes after more than an hour idle re-cached 10.2M tokens, about 5%
+of Opus cost. Median cost per gated Opus 5.5 commit turn in the same window:
+$3.59 over 218 turns, content repo included, so not comparable with the
+table above; the nudge's acceptance compares against this figure
+(Decision 17).
+
 ## Open milestones
 
 Run them in this order. Each milestone is accepted when its check passes, along
@@ -113,8 +123,8 @@ with the full project gates.
 
 | Milestone | Goal | Acceptance |
 |---|---|---|
-| Question rules stick | Claude Code hooks block multi-question or unmarked choice-UI calls and bounce prose questions; duplicate orchestration ratings are dropped (next step above). | Hook tests pass; after install, `transcript-audit` shows no multi-question calls and fewer `prose-question` findings. |
-| Post-commit menu and prose choices | Commits in a compacted session ended without the post-commit "what next?" menu that `minime-project-commit` requires, and options came as prose ("type X to choose") instead of the choice UI. After Question rules stick is accepted, decide (open, for `minime-decision-prompt`): whether a hook enforces the menu and how autopilot's commit-and-continue loop is exempted; whether the menu offers "Stop and reflect" after N commits since the last reflection, and the value of N. The menu-enforcement and prose-choice checks both judge how a MiniMe turn ends, so they share the Stop hook. In scope: `transcript-audit` finding kinds for a post-commit turn without a menu and for a prose choice. | The new finding kinds exist with tests, prose-choice false-positive samples pass, and hook cases cover the enforcement, if any, and the exemption the decision chose; after install, `transcript-audit` shows neither finding kind. |
+| Fresh-session nudge | In Claude Code, an agent hook recommends a handoff, `/clear` and `minime-orient` when the last request's context exceeds about 300k tokens after a commit (the Stop hook, shared with the post-commit menu, returns the turn once per commit) or on the first prompt after more than an hour idle (a new `UserPromptSubmit` hook adds context); it never blocks a tool call or a commit (Decision 17). Installed 2026-11-16. | Hook tests cover both triggers, the threshold boundary, silence below it and one Stop return per commit with no loop; after a week installed, the local cost audit shows the share of Opus cost above 300k context below the 67% baseline (Cost baseline), and neither the median cost per gated turn nor the misfire counts rise. |
+| Post-commit menu and prose choices | Commits in a compacted session ended without the post-commit "what next?" menu that `minime-project-commit` requires, and options came as prose ("type X to choose") instead of the choice UI. Decide (open, for `minime-decision-prompt`): whether a hook enforces the menu and how autopilot's commit-and-continue loop is exempted; whether the menu offers "Stop and reflect" after N commits since the last reflection, and the value of N. The menu-enforcement and prose-choice checks both judge how a MiniMe turn ends, so they share the Stop hook. In scope: `transcript-audit` finding kinds for a post-commit turn without a menu and for a prose choice. | The new finding kinds exist with tests, prose-choice false-positive samples pass, and hook cases cover the enforcement, if any, and the exemption the decision chose; after install, `transcript-audit` shows neither finding kind. |
 | More stack profiles (lower priority) | Profiles and fixtures in order of recorded demand: sessions outside MiniMe and review-eval whose review reported the stack uncovered, counted on 2026-10-25. Ruby with Rails and ERB first (18 and 17 sessions), then Lua (16), then JavaScript (10). TypeScript (3), React and Vitest (0) wait until the warnings show demand; their marker rows in `stacks.md` stay so the warnings keep counting (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
 
 ## Candidate skill changes

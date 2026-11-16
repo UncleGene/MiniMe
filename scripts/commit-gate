@@ -26,11 +26,19 @@ After a compaction in a session that loaded a MiniMe skill, the Claude Code
 SessionStart hook (matcher `compact`) reminds the agent that those skills are
 still in force, and the Stop hook blocks once until a reply starts a line with
 `Ledger:`, the minime step-0 orchestration ledger.
+
+In a Claude Code session that loaded a MiniMe skill, once the last request
+carried more than FRESH_CONTEXT tokens of context, it nudges toward a fresh
+session (Decision 17): the Stop hook returns a turn that ran a successful
+`git commit` once, and the UserPromptSubmit hook adds context to the first
+prompt after more than IDLE_SECONDS idle. Neither blocks a tool call or a
+commit; the user runs `/clear`.
 """
 import json
 import re
 import sys
 import time
+from datetime import datetime
 from typing import NamedTuple
 
 SKILL_NAME = r"minime(?:-[a-z]+)*"
@@ -92,6 +100,19 @@ COMPACT_REMINDER = ("MiniMe: this session was compacted after loading {skills}. 
                     "minime-decision-prompt before any question), then write the step-0 "
                     "orchestration ledger starting with a line `Ledger:`; reflection (step 1) is "
                     "due if 3+ commits happened since the last one.")
+# Every request re-reads the whole context, so past this size a handoff and a
+# fresh session cost less than continuing for most sessions (Decision 17).
+FRESH_CONTEXT = 300_000
+# Claude Code writes its prompt cache with a one-hour lifetime
+# (`ephemeral_1h_input_tokens` in transcript usage).
+IDLE_SECONDS = 3600
+_FRESH_STEPS = ("recommend writing a handoff with minime-context-handoff, then that the user runs "
+                "/clear and /minime-orient, unless the work ends here anyway.")
+FRESH_MESSAGE = ("MiniMe fresh-session nudge: this turn committed and the context is {k}k tokens, which "
+                 "every further request re-reads. In your reply, " + _FRESH_STEPS)
+IDLE_MESSAGE = ("MiniMe fresh-session nudge: the session was idle {hours:.1f}h, past the prompt-cache "
+                "lifetime, and its context is {k}k tokens, which this turn re-caches and every later "
+                "request re-reads. Before other work, " + _FRESH_STEPS)
 CHOICE_UI = "AskUserQuestion"
 QUESTION_MARKER = "default if no reply:"
 OPTION_MARKERS = ("pros:", "cons:", "locks in:")
@@ -186,6 +207,41 @@ class Transcript(NamedTuple):
     light: bool  # the turn's latest tier statement is `Commit tier: light`
     asked: bool  # the turn used the choice UI
     ledger_due: bool  # compacted after a MiniMe load, with no `Ledger:` line since
+    context: int  # context tokens of the last main-thread Claude Code request
+    committed: bool  # the turn ran a `git commit` that did not fail
+    last_reply: float  # epoch time of the last main-thread Claude Code reply, 0 if unknown
+
+
+def _claude_usage(record: dict) -> tuple[int, float]:
+    """A main-thread Claude Code reply's context tokens and epoch time, or (0, 0)."""
+    if record.get("type") != "assistant" or record.get("isSidechain"):
+        return 0, 0.0
+    usage = (record.get("message") or {}).get("usage") or {}
+    context = sum(int(usage.get(k) or 0) for k in
+                  ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    try:
+        when = datetime.fromisoformat(str(record.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        when = 0.0
+    return context, when
+
+
+def _commit_ids(record: dict) -> set[str]:
+    """Tool-use ids of the `git commit` calls in a main-thread Claude Code reply."""
+    content = (record.get("message") or {}).get("content")
+    if record.get("type") != "assistant" or record.get("isSidechain") or not isinstance(content, list):
+        return set()
+    return {str(b.get("id")) for b in content if isinstance(b, dict) and b.get("type") == "tool_use"
+            and b.get("name") == "Bash"
+            and GIT_COMMIT_RE.search(_executed_text(str((b.get("input") or {}).get("command", ""))))}
+
+
+def _succeeded(record: dict, ids: set[str]) -> bool:
+    """Whether a Claude Code user record returns a non-error result for one of the ids."""
+    content = (record.get("message") or {}).get("content")
+    return record.get("type") == "user" and isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in ids
+        and not b.get("is_error") for b in content)
 
 
 def _loaded_skills(path: str) -> Transcript:
@@ -193,7 +249,9 @@ def _loaded_skills(path: str) -> Transcript:
     session: set[str] = set()
     turn: set[str] = set()
     final = ""
-    light = asked = ledger_due = False
+    light = asked = ledger_due = committed = False
+    context, last_reply = 0, 0.0
+    commits: set[str] = set()
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             try:
@@ -204,7 +262,13 @@ def _loaded_skills(path: str) -> Transcript:
                 continue
             found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
             if new_turn:
-                turn, final, light, asked = set(), "", False, False
+                turn, final, light, asked, committed = set(), "", False, False, False
+            if "payload" not in record:
+                size, when = _claude_usage(record)
+                if size:
+                    context, last_reply = size, when or last_reply
+                commits |= _commit_ids(record)
+                committed = committed or _succeeded(record, commits)
             session |= found
             turn |= found
             texts = [_codex_text(record)] if "payload" in record else _claude_texts(record)
@@ -214,9 +278,10 @@ def _loaded_skills(path: str) -> Transcript:
             asked = asked or _used_choice_ui(record)
             if record.get("subtype") == "compact_boundary":
                 ledger_due = bool(session)
+                context = 0  # The summary replaces the context; the next reply measures it.
             elif LEDGER_RE.search("\n".join(texts)):
                 ledger_due = False
-    return Transcript(session, turn, final, light, asked, ledger_due)
+    return Transcript(session, turn, final, light, asked, ledger_due, context, committed, last_reply)
 
 
 def _executed_text(command: str) -> str:
@@ -334,6 +399,8 @@ def stop_blocked(event: dict) -> str:
             messages.append(STOP_MESSAGE)
         if seen.turn and not seen.asked and _ends_on_question(seen.final):
             messages.append(PROSE_QUESTION_MESSAGE)
+        if seen.session and seen.committed and seen.context > FRESH_CONTEXT and "/clear" not in seen.final:
+            messages.append(FRESH_MESSAGE.format(k=seen.context // 1000))
         message = " ".join(messages)
         if not message:
             return ""
@@ -353,6 +420,18 @@ def compact_reminder(event: dict) -> str:
     return COMPACT_REMINDER.format(skills=", ".join(sorted(session))) if session else ""
 
 
+def idle_nudge(event: dict) -> str:
+    """The context to add to a prompt that resumes a large, idle MiniMe session, or ""."""
+    try:
+        seen = _loaded_skills(event["transcript_path"])
+    except (KeyError, TypeError, OSError):
+        return ""
+    idle = time.time() - seen.last_reply
+    if not seen.session or seen.context <= FRESH_CONTEXT or not seen.last_reply or idle <= IDLE_SECONDS:
+        return ""
+    return IDLE_MESSAGE.format(hours=idle / 3600, k=seen.context // 1000)
+
+
 def main() -> int:
     try:
         event = json.load(sys.stdin)
@@ -364,6 +443,11 @@ def main() -> int:
         reminder = compact_reminder(event)
         if reminder:
             print(reminder)  # SessionStart stdout becomes context for the agent.
+        return 0
+    if event.get("hook_event_name") == "UserPromptSubmit":
+        nudge = idle_nudge(event)
+        if nudge:
+            print(nudge)  # UserPromptSubmit stdout becomes context for the agent.
         return 0
     if event.get("hook_event_name") == "Stop":
         message = stop_blocked(event)

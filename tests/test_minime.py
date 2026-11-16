@@ -11,6 +11,7 @@ import tempfile
 import time
 import types
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1492,7 +1493,7 @@ class AgentHookCLITests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(settings.read_text())["hooks"], {
                 "PreToolUse": [{"matcher": "Bash|AskUserQuestion", "hooks": ours}], "Stop": [{"hooks": ours}],
-                "SessionStart": [{"matcher": "compact", "hooks": ours}]})
+                "SessionStart": [{"matcher": "compact", "hooks": ours}], "UserPromptSubmit": [{"hooks": ours}]})
 
     def test_reinstall_keeps_a_customized_or_shared_matcher(self):
         other = {"type": "command", "command": "/bin/true"}
@@ -1640,6 +1641,84 @@ class AgentHookCLITests(unittest.TestCase):
                     if expected:
                         self.assertIn("still in force", result.stdout)
                         self.assertIn(expected, result.stdout)
+                    else:
+                        self.assertEqual(result.stdout, "")
+
+    def test_fresh_session_nudge_after_a_large_commit_turn_or_idle_resume(self):
+        """Decision 17: recommend a handoff and fresh session once context passes 300k."""
+        def user(text):
+            return {"type": "user", "message": {"role": "user", "content": text}}
+
+        def reply(text, context=0, ago=0.0):
+            stamp = datetime.fromtimestamp(time.time() - ago, timezone.utc).isoformat()
+            return {"type": "assistant", "timestamp": stamp, "message": {
+                "role": "assistant", "content": [{"type": "text", "text": text}],
+                "usage": {"input_tokens": 0, "cache_read_input_tokens": context, "cache_creation_input_tokens": 0}}}
+
+        def commit(ok=True):
+            call = {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "c1", "name": "Bash", "input": {"command": "git commit -m x"}}]}}
+            outcome = {"type": "tool_result", "tool_use_id": "c1", "content": "ok"}
+            result = {"type": "user", "message": {"role": "user", "content": [
+                {**outcome, "is_error": True} if not ok else outcome]}}
+            return [call, result]
+
+        skill = {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Skill", "input": {"skill": "minime-project-commit"}}]}}
+        done = "Committed.\n\nRecommended next action: run the audit."
+        big, limit = 400_000, 300_000
+        stop_cases = [
+            ("large commit turn", [user("go"), skill, *commit(), reply(done, big)], False, 2),
+            ("just over the threshold", [user("go"), skill, *commit(), reply(done, limit + 1)], False, 2),
+            ("at the threshold", [user("go"), skill, *commit(), reply(done, limit)], False, 0),
+            ("commit failed", [user("go"), skill, *commit(ok=False), reply(done, big)], False, 0),
+            ("no commit", [user("go"), skill, reply(done, big)], False, 0),
+            ("no MiniMe skill", [user("go"), *commit(), reply(done, big)], False, 0),
+            ("already recommends /clear", [user("go"), skill, *commit(),
+                                           reply("Run /clear next.\n\nRecommended next action: /clear.", big)],
+             False, 0),
+            ("continuing from this hook: no loop", [user("go"), skill, *commit(), reply(done, big)], True, 0),
+            ("commit in an earlier turn", [user("go"), skill, *commit(), reply(done, big), user("thanks"),
+                                           reply("Sure.", big)], False, 0),
+            ("only a subagent's context is large", [user("go"), skill, *commit(), reply(done, 1000),
+                                                    {**reply("sub", big), "isSidechain": True}], False, 0),
+            ("Codex transcript", [user("go"), skill, {"payload": {"type": "task_started"}},
+                                  {"payload": {"type": "function_call", "arguments": "git commit -m x"}},
+                                  reply(done)], False, 0),
+        ]
+        hour = 3600
+        prompt_cases = [
+            ("large and idle", [user("go"), skill, reply(done, big, 2 * hour)], True),
+            ("idle under an hour", [user("go"), skill, reply(done, big, hour / 2)], False),
+            ("small context", [user("go"), skill, reply(done, limit, 2 * hour)], False),
+            ("no MiniMe skill", [user("go"), reply(done, big, 2 * hour)], False),
+            ("no timestamp", [user("go"), skill, {k: v for k, v in reply(done, big).items() if k != "timestamp"}],
+             False),
+            ("compacted since the large reply", [user("go"), skill, reply(done, big, 2 * hour),
+                                                 {"type": "system", "subtype": "compact_boundary"}], False),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            transcript = Path(d) / "t.jsonl"
+
+            def run(records, event):
+                transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+                return subprocess.run([sys.executable, str(self.GATE)], capture_output=True, text=True,
+                                      input=json.dumps({**event, "transcript_path": str(transcript)}))
+
+            for name, records, active, code in stop_cases:
+                with self.subTest(name):
+                    result = run(records, {"hook_event_name": "Stop", "stop_hook_active": active})
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    if code:
+                        self.assertIn("fresh-session nudge", result.stderr)
+                        self.assertIn("/minime-orient", result.stderr)
+            for name, records, nudged in prompt_cases:
+                with self.subTest(name):
+                    result = run(records, {"hook_event_name": "UserPromptSubmit", "prompt": "next"})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if nudged:
+                        self.assertIn("fresh-session nudge", result.stdout)
+                        self.assertIn("400k", result.stdout)
                     else:
                         self.assertEqual(result.stdout, "")
 
