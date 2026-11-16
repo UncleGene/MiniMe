@@ -298,7 +298,8 @@ Behavior:
 - Flags, once per turn: `no-next-action`, `next-action-unformatted`,
   `prose-question` (Claude only), `commit-unverified` (no test or check command
   earlier in the turn or since the previous commit) and
-  `commit-without-commit-skill`.
+  `commit-without-commit-skill`. A Claude Code turn cut off during a tool call
+  has no ending reply, so it is not judged for a next action or a question.
 - Reports token counts (`input`, `cache_read`, `cache_write`, `output`) per
   host, split between the main context and subagent transcripts (Claude Code
   only; Codex sessions all count as main). Claude Code records that repeat a

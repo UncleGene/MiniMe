@@ -1551,6 +1551,9 @@ def _parse_claude_transcript(path: Path) -> dict[str, Any]:
                 if block.get("type") == "text" and block.get("text", "").strip():
                     turn["final"] = block["text"]
                 elif block.get("type") == "tool_use":
+                    # Text before a tool call is not the turn's ending; a turn
+                    # cut off mid-tool has none to judge.
+                    turn["final"] = ""
                     name, data = block.get("name"), block.get("input") or {}
                     if name == "Skill" and re.fullmatch(SKILL_NAME, str(data.get("skill", ""))):
                         turn["skills"].add(data["skill"])

@@ -1075,6 +1075,15 @@ class TranscriptAuditCLITests(unittest.TestCase):
             user(f"why does `{eval_prompt}` fail?", "2026-10-08T00:00:00Z"),
             assistant(bash("cat /h/.claude/skills/minime-project-commit/SKILL.md"),
                       {"type": "text", "text": "Recommended next action: rerun."})])
+        # A turn cut off during a tool call (interrupted, or a new prompt sent
+        # mid-turn) has no ending reply: text written before the tool call is
+        # not how the turn ended, so it is neither no-next-action nor a question.
+        self._write(root / "proj" / "ffffffff-6666.jsonl", [
+            user("sync the docs", "2026-10-08T00:00:00Z"),
+            assistant({"type": "tool_use", "name": "Read",
+                       "input": {"file_path": "/h/.claude/skills/minime-doc-sync/SKILL.md"}},
+                      {"type": "text", "text": "Checking the diff. Which docs changed?"},
+                      bash("git diff"))])
 
     def _codex_session(self, root: Path) -> None:
         def item(payload, ts="2026-10-08T00:00:00Z"):
@@ -1133,7 +1142,7 @@ class TranscriptAuditCLITests(unittest.TestCase):
     def test_detects_skill_loads_and_misfires(self):
         report = self._run()
         self.assertEqual(report["skill_loads"], {
-            "minime-code-reviewer": 1, "minime-doc-sync": 1,
+            "minime-code-reviewer": 1, "minime-doc-sync": 2,
             "minime-project-commit": 2, "minime-replan": 1, "minime-scope-boundary": 1})
         found = {(f["host"], f["turn"], f["type"]) for f in report["findings"]}
         self.assertEqual(found, {
@@ -1145,6 +1154,7 @@ class TranscriptAuditCLITests(unittest.TestCase):
             ("codex", 1, "next-action-unformatted"),
         })
         self.assertEqual({f["project"] for f in report["findings"]}, {"project-1"})
+        self.assertEqual([f for f in report["findings"] if f["session"] == "ffffffff"], [])
 
     def test_reads_compressed_codex_rollouts_like_plain_ones(self):
         # Codex compresses older rollouts in place; skipping them hid most of a month.
@@ -1158,7 +1168,7 @@ class TranscriptAuditCLITests(unittest.TestCase):
         claude, codex = report["hosts"]["claude"], report["hosts"]["codex"]
         self.assertEqual(claude["tokens"], {"main": tokens(11, 3000, 100, 12), "subagent": tokens(5, 70, 0, 4)})
         self.assertEqual(codex["tokens"], {"main": tokens(200, 600, 0, 30), "subagent": tokens(0, 0, 0, 0)})
-        self.assertEqual((claude["sessions"], claude["review_eval_sessions"]), (3, 1))
+        self.assertEqual((claude["sessions"], claude["review_eval_sessions"]), (4, 1))
         self.assertEqual((codex["sessions"], codex["review_eval_sessions"]), (1, 1))
 
     def test_parsers_record_each_request_unpriced(self):
@@ -1222,7 +1232,7 @@ class TranscriptAuditCLITests(unittest.TestCase):
         report = self._run("--since", "2026-10-05")
         self.assertEqual({(f["host"], f["type"]) for f in report["findings"]},
                          {("codex", "commit-without-commit-skill"), ("codex", "next-action-unformatted")})
-        self.assertEqual(report["hosts"]["claude"]["minime_turns"], 2)
+        self.assertEqual(report["hosts"]["claude"]["minime_turns"], 3)
 
 
 class ReviewEvalCLITests(unittest.TestCase):

@@ -79,14 +79,12 @@ cheaper routing must not raise the misfire counts.
 
 ## Next implementation step
 
-Measure the fresh-session nudge, installed on 2026-11-16. First fix a
-`transcript-audit` miscount: it reports `no-next-action` for a turn whose last
-record is a tool call, i.e. a turn the user interrupted or cut short with a new
-prompt, where no reply was written and the Stop hook never ran. Such turns
-made up at least 4 of the 14 Claude Code findings from 2026-11-10 to
-2026-11-16 (2 the week before), so the nudge's "misfire counts do not rise"
-check needs the fix to compare like with like. Then, after 2026-11-23, run the
-local cost audit and `transcript-audit` against the nudge's acceptance check.
+Measure the fresh-session nudge, installed on 2026-11-16: after 2026-11-23,
+run the local cost audit and `transcript-audit` against its acceptance check.
+Misfire baseline, 2026-11-10 to 2026-11-16 (turns cut off mid-tool are no
+longer counted as `no-next-action`): Claude Code `no-next-action` 1,
+`prose-question` 0, `commit-unverified` 119 (101 in one project); Codex
+`no-next-action` 6, against 1 the week before (Codex has no Stop hook).
 
 ## Cost baseline
 
