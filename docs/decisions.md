@@ -382,3 +382,32 @@ current position.
   above 300k context falls and the median cost per gated turn and the misfire
   counts do not rise in the local cost audit; the threshold is revisited with
   that data.
+
+## Decision 18 — "Go" starts autopilot
+
+- Status: accepted.
+- Context: in long runs the user answers each recommended next action or
+  post-commit menu with "Go" and expects the agent to commit each finished
+  block and keep going. The post-commit "what next?" menu stopped every
+  commit, and each new turn reloaded the commit skill and its checks.
+- Decision: a reply of "go", "go on", "continue" or "proceed" to a
+  recommended next action that continues work, or one that selects a
+  continue-work option in a post-commit menu, authorizes `minime` autopilot
+  for the current work list (the plan's or the request's remaining blocks, or
+  the list the agent last stated): each finished block is committed and the
+  agent continues without the post-commit menu until the list is done, an
+  autopilot stop condition applies, or the user gives a new direction. Every
+  turn still ends with a next action. As an answer to a pending choice, "go"
+  approves the recommended option only when it is low-impact, in-repo and
+  reversible (`minime-decision-prompt`); a "go" that selects a stop option,
+  answers an unsettled decision or needs an explicit pick starts no
+  autopilot. A hook that later enforces the post-commit menu must exempt
+  turns of such a run.
+- Alternatives: a menu after every commit (stops runs the user already
+  authorized); a dedicated autopilot command (one more thing to type for what
+  "Go" already says).
+- Consequences: one "go" can produce many commits without review by the user
+  between them; the commit gates, the autopilot stop conditions and the
+  fresh-session nudge (Decision 17) still apply to each. The user chose to
+  keep the guard: "go" never approves an option that creates a tracked doc,
+  edits the project guide or reaches outside the repo.

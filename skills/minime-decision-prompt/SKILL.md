@@ -75,11 +75,12 @@ Rules), which is stated instead of asked.
   each option affects only in its `Affects:`, as path:line.
 - Two options is the default; add a third only when it is materially
   different.
-- A terse free-text reply ("go", "ok") approves the recommended option
-  only when that option is low-impact, in-repo and reversible. An option
-  that creates a tracked doc, edits the project guide (`AGENTS.md`,
-  `CLAUDE.md`, `GEMINI.md`) or reaches outside the repo needs an explicit
-  pick by name; re-ask naming the options.
+- A terse free-text reply ("go", "go on", "continue", "proceed", "ok")
+  approves the recommended option only when that option is low-impact,
+  in-repo and reversible. An option that creates a tracked doc, edits the
+  project guide (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) or reaches outside
+  the repo needs an explicit pick by name; re-ask naming the options. When a
+  "go" also starts autopilot, see `minime` Autopilot mode.
 - After the user resolves a choice, record it as a durable decision.
 - Render the question and options as a structured interactive choice through
   the host's choice UI when one is available (for example, `AskUserQuestion`

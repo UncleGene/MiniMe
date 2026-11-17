@@ -121,7 +121,9 @@ sequential passing gates.
 After a **pass** verdict and successful commit, delegate to
 minime-decision-prompt. Read its skill file and follow its procedure —
 produce a "what next?" menu. Do NOT end the session without presenting this
-prompt. Typical options:
+prompt, except while autopilot (including one a "go" reply started) has
+blocks left: continue with the next block instead. After the last block, or
+when autopilot stops, present the menu. Typical options:
 
 - **Continue to next slice** — route to `minime-implementation-step-selector`.
 - **Stop and reflect** — write a session checkpoint and update learnings.

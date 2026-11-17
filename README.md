@@ -134,10 +134,12 @@ spans more than one step, or when you just want to know what to do next:
   commit) and runs the quality gate between them.
 - It keeps a checklist of required steps and does not report the work done
   while any step is still open.
-- **Autopilot:** if you explicitly allow continued autonomous work, it repeats
-  the select, plan, implement, validate and commit loop. It stops for
-  unsettled product, architecture, safety or privacy decisions, destructive
-  or paid actions, and failures outside the current step.
+- **Autopilot:** if you explicitly allow continued autonomous work, for
+  example by answering a recommended next step with "Go", it repeats the
+  select, plan, implement, validate and commit loop without a menu after
+  each commit. It stops for unsettled product, architecture, safety or
+  privacy decisions, destructive or paid actions, and failures outside the
+  current step.
 
 Go to a specific skill directly only when the task clearly needs just that
 skill, as in the table below.

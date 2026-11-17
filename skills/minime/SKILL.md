@@ -130,7 +130,15 @@ an agent or session. A row whose skill is not installed on this host is
 
 Use only when the user explicitly authorizes continued autonomous work. Repeat
 the select, plan, implement, validate, commit loop until a stop condition
-applies.
+applies. A reply of "go" (or "go on", "continue", "proceed") to a recommended
+next action that continues work, or one that selects a continue-work option in
+a post-commit menu, authorizes it for the current work list: the remaining
+blocks the plan or the user's request names, or the list the agent last
+stated. Commit each finished block and continue without the post-commit menu
+until that list is done, a stop condition below applies, or the user gives a
+new direction. A "go" that selects a stop option, answers an unsettled
+decision, or meets the `minime-decision-prompt` guard on terse replies does
+not start autopilot. Each turn still ends with `Recommended next action:`.
 
 Stop and ask before proceeding when:
 - A product, architecture, safety, privacy, or domain decision is not already

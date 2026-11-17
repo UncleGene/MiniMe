@@ -57,7 +57,8 @@ Required rows:
 - Shared gate: reflection if the project guide's reflection trigger fires.
 - Commit message: atomic conventional title and why-body.
 - Commit action: commit created through this ledger and shared commit gate.
-- Post-commit continuation: next step or decision prompt presented.
+- Post-commit continuation: next step or decision prompt presented, or the
+  next autopilot block started.
 
 Direct git commit remains forbidden until every required ledger row is
 `status: pass` or an allowed light-tier skip. Running some checks manually does
