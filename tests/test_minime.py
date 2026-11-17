@@ -1532,10 +1532,12 @@ class AgentHookCLITests(unittest.TestCase):
                 self.assertIn("MINIME_E_HOOK_SETTINGS_UNREADABLE", result.stdout + result.stderr)
                 self.assertEqual(settings.read_text(), content)
 
-    def _gate(self, directory: Path, records: list[dict], command: str) -> subprocess.CompletedProcess:
+    def _gate(self, directory: Path, records: list[dict], command: str,
+              cwd: Path | None = None) -> subprocess.CompletedProcess:
         transcript = directory / "t.jsonl"
         transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
-        event = {"tool_name": "Bash", "tool_input": {"command": command}, "transcript_path": str(transcript)}
+        event = {"tool_name": "Bash", "tool_input": {"command": command}, "transcript_path": str(transcript),
+                 **({"cwd": str(cwd)} if cwd else {})}
         return subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
                               capture_output=True, text=True)
 
@@ -1963,6 +1965,74 @@ class AgentHookCLITests(unittest.TestCase):
                     missing = subprocess.run([sys.executable, str(self.GATE)], input=json.dumps(event),
                                              capture_output=True, text=True)
                     self.assertEqual(missing.returncode, 0, missing.stderr)
+
+    def test_data_tier_commits_only_staged_paths_marked_commit_data(self):
+        """A data-only commit needs no skill when every staged path has `commit-data` set."""
+        def reply(text):
+            return {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "text", "text": text}]}}
+
+        go = {"type": "user", "message": {"role": "user", "content": "Go"}}
+        earlier = [{"type": "user", "message": {"role": "user", "content": "<command-name>/minime</command-name>"}}, go]
+        data = [*earlier, reply("Commit tier: data — register rows only.")]
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+        cases = [
+            ("every staged path is data", ["data/a.csv", "data/sub/b.ged"], data, "git commit -m x", 0, ""),
+            ("one staged code path", ["data/a.csv", "tool.py"], data, "git commit -m x", 2, "tool.py"),
+            ("a path unset inside a data folder", ["data/a.csv", "data/README.md"], data, "git commit -m x", 2,
+             "data/README.md"),
+            ("the attributes file itself", ["data/a.csv", ".gitattributes"], data, "git commit -m x", 2,
+             ".gitattributes"),
+            ("an attributes file that marks itself", ["data/.gitattributes"], data, "git commit -m x", 2,
+             "data/.gitattributes"),
+            ("nothing staged", [], data, "git commit -m x", 2, "nothing is staged"),
+            ("data tier withdrawn by a later full tier", ["data/a.csv"], [*data, reply("Commit tier: full")],
+             "git commit -m x", 2, "minime-project-commit"),
+            ("data tier only quoted", ["data/a.csv"], [*earlier, reply("The rule: `Commit tier: data` skips them.")],
+             "git commit -m x", 2, "minime-project-commit"),
+            ("data tier from an earlier turn", ["data/a.csv"], [*data, go], "git commit -m x", 2,
+             "minime-project-commit"),
+            *[(f"index-only command: {command!r}", ["data/a.csv"], data, command, 0, "") for command in (
+                "git commit -q -F msg.txt", "git commit -s -m 'add rows; (why) `x` $(y)\n\nbody'",
+                'git commit -m "add rows (why)"', "git commit --quiet -m x\n")],
+            *[(f"command beyond the index: {command!r}", ["data/a.csv"], data, command, 2, "accepts only a commit")
+              for command in (
+                  "git commit -am x", "git commit -a -m x", "git commit --all -m x", "git commit -m x data/a.csv",
+                  "git commit -m x -- data", "git commit -i -m x data", "git commit --amend -m x",
+                  "git commit --amen -m x", "git commit -n -m x", "git commit -m 'x", 'git commit -m "" tool.py',
+                  "git -C other commit -m x", "git -c core.hooksPath=/x commit -m x",
+                  "git add tool.py && git commit -m x", "cd data && git commit -m x",
+                  "git commit -m x && git --no-pager commit -a -m y", "git commit -m x 2>&1",
+                  "git commit -m x \\\n -a", 'git commit -m "$(git add -A)"', "git commit -m `git add -A`",
+                  "git commit -m 'a' 'b'", "git commit -F - <<EOF\nx\nEOF",
+                  # macOS bash 3.2 ends this substitution at the first `)` and runs the rest.
+                  "git commit -m \"$(cat <<'D'\nx)\"; touch y; echo \"\nD\n)\"")],
+            # check-attr reads paths relative to its directory, diff prints top-level ones.
+            ("data paths from a subdirectory", ["data/a.csv"], data, "git commit -m x", 0, "", "data"),
+            ("a top-level code path from a data subdirectory", ["tool.py"], data, "git commit -m x", 2, "tool.py",
+             "data"),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            (repo / "data" / "sub").mkdir(parents=True)
+            for name, staged, records, command, code, named, *subdirectory in cases:
+                with self.subTest(name):
+                    shutil.rmtree(repo / ".git", ignore_errors=True)
+                    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=env)
+                    attributes = repo / ".gitattributes"
+                    attributes.write_text("data/** commit-data\ndata/README.md -commit-data\n")
+                    subprocess.run(["git", "add", ".gitattributes"], cwd=repo, check=True, env=env)
+                    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, env=env)
+                    for path in staged:
+                        target = repo / path
+                        target.write_text(target.read_text() + "x\n" if target.exists() else "x\n")
+                    if staged:
+                        subprocess.run(["git", "add", "--", *staged], cwd=repo, check=True, env=env)
+                    result = self._gate(Path(d), records, command, cwd=repo.joinpath(*subdirectory))
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertIn(named, result.stderr)
 
 
 class GitHookCLITests(unittest.TestCase):

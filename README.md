@@ -35,7 +35,9 @@ keeps a project you may later share or open-source fit to show.
     or focused tests, blanket lint or type suppressions and debugger calls
     in staged code;
   - an **agent commit gate** for Claude Code and Codex that stops an agent's
-    `git commit` until it has loaded the commit procedure and its checks. In
+    `git commit` until it has loaded the commit procedure and its checks
+    (a commit of only paths your repository marks with the `commit-data` git
+    attribute runs just your project's own check). In
     Claude Code it also makes the agent end each MiniMe turn with a next
     action and ask choices through the choice dialog, and recommends a fresh
     session once the context grows past 300k tokens.

@@ -5,10 +5,11 @@ A PreToolUse hook for Bash. It blocks `git commit` when the session has loaded
 a MiniMe skill but the current turn lacks a commit skill or any commit check
 skill: doc-sync, scope-boundary, simplifier and reviewer. A turn whose reply
 starts a line with `Commit tier: light` may skip the reviewer; the turn's latest
-`Commit tier:` line counts, so a later `Commit tier: full` withdraws it.
-Sessions that never loaded
-a MiniMe skill are not affected. Exit 2 blocks the
-call and shows the message to the agent.
+`Commit tier:` line counts, so a later `Commit tier: full` withdraws it. A turn
+whose latest tier line is `Commit tier: data` needs no skill, but only commits
+the index, and only when the `commit-data` git attribute is set for every
+staged path. Sessions that never loaded a MiniMe skill are not affected. Exit 2
+blocks the call and shows the message to the agent.
 
 In Claude Code it is also a Stop hook: a turn that loaded a MiniMe skill may
 not end without `Recommended next action:` in its last message, nor with a
@@ -36,6 +37,7 @@ commit; the user runs `/clear`.
 """
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -51,7 +53,7 @@ LIGHT_CHECKS = {"minime-doc-sync": {"minime-doc-sync", "minime-doc-check"},
 FULL_CHECKS = {**LIGHT_CHECKS, "minime-code-reviewer": {"minime-code-reviewer"}}
 # A tier statement starts a line (bold or list markers allowed), so a reply
 # that quotes the rule mid-sentence does not choose a tier.
-TIER_RE = re.compile(r"^[\W_]{0,4}commit tier\W{0,4}(light|full)(?![\w-])", re.I | re.M)
+TIER_RE = re.compile(r"^[\W_]{0,4}commit tier\W{0,4}(light|full|data)(?![\w-])", re.I | re.M)
 GIT_COMMIT_RE = re.compile(r"(?:^|&&|\|\|?|;|\n|\$\(|`)\s*git\s+(?:-[cC]\s+\S+\s+)*commit\b")
 # A heredoc body is data unless the heredoc feeds a shell, so a commit it only
 # mentions, as in a script or document written through one, is not run. Any
@@ -83,6 +85,21 @@ MESSAGE = ("MiniMe commit gate: this turn has not loaded a commit skill. Read an
 CHECKS_MESSAGE = ("MiniMe commit gate: this turn has not run {missing}. Run each through its "
                   "skill before committing. Only a turn whose latest tier line is `Commit tier: light` "
                   "(the light tier in minime-project-commit) may skip the reviewer." + _STAGE_NOTE)
+# The neutral git attribute a consuming repo sets on its data paths.
+DATA_ATTRIBUTE = "commit-data"
+DATA_MESSAGE = ("MiniMe commit gate: `Commit tier: data` needs the `commit-data` git attribute set on "
+                "every staged path; {problem}. Unstage those paths, or state `Commit tier: full` and run "
+                "minime-project-commit with its checks." + _STAGE_NOTE)
+DATA_COMMAND_MESSAGE = ("MiniMe commit gate: `Commit tier: data` accepts only a commit of the staged index alone "
+                        "in its call: `git commit [-q|-s|-v] -m <message>` or `-F <file>`, where the message is "
+                        "one plain word, a single-quoted string (lines allowed) or a double-quoted string "
+                        "without $, backtick, backslash or !; write a message with apostrophes to a file for -F. "
+                        "Stage in its own call first.")
+# The only data-tier command shapes: one `git commit` of the index, nothing
+# before or after it, and a message the shell cannot expand into a command. A
+# heredoc in `$(...)` is left out: macOS bash 3.2 can run text from its body.
+DATA_COMMIT_RE = re.compile(r"git commit(?: -[qsv]+| --(?:quiet|verbose|signoff|no-edit))* "
+                            r"(?:-m (?:[\w.,:+/-]+|'[^']*'|\"[^\"$`\\!]*\")|-F [\w./-]+)")
 NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
 STOP_MESSAGE = ("MiniMe next-action gate: this turn loaded a MiniMe skill, so end it with "
                 "`Recommended next action: <one concrete step>`. Add that line now.")
@@ -204,7 +221,7 @@ class Transcript(NamedTuple):
     session: set[str]  # MiniMe skills loaded anywhere in the session
     turn: set[str]  # ...and in the current turn
     final: str  # the turn's latest reply text
-    light: bool  # the turn's latest tier statement is `Commit tier: light`
+    tier: str  # the turn's latest `Commit tier:` statement, lower-case, or ""
     asked: bool  # the turn used the choice UI
     ledger_due: bool  # compacted after a MiniMe load, with no `Ledger:` line since
     context: int  # context tokens of the last main-thread Claude Code request
@@ -249,7 +266,8 @@ def _loaded_skills(path: str) -> Transcript:
     session: set[str] = set()
     turn: set[str] = set()
     final = ""
-    light = asked = ledger_due = committed = False
+    tier = ""
+    asked = ledger_due = committed = False
     context, last_reply = 0, 0.0
     commits: set[str] = set()
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -262,7 +280,7 @@ def _loaded_skills(path: str) -> Transcript:
                 continue
             found, new_turn = (_codex_skills if "payload" in record else _claude_skills)(record)
             if new_turn:
-                turn, final, light, asked, committed = set(), "", False, False, False
+                turn, final, tier, asked, committed = set(), "", "", False, False
             if "payload" not in record:
                 size, when = _claude_usage(record)
                 if size:
@@ -274,14 +292,14 @@ def _loaded_skills(path: str) -> Transcript:
             texts = [_codex_text(record)] if "payload" in record else _claude_texts(record)
             final = texts[-1] if texts and texts[-1] else final
             tiers = TIER_RE.findall("\n".join(texts))
-            light = tiers[-1].lower() == "light" if tiers else light
+            tier = tiers[-1].lower() if tiers else tier
             asked = asked or _used_choice_ui(record)
             if record.get("subtype") == "compact_boundary":
                 ledger_due = bool(session)
                 context = 0  # The summary replaces the context; the next reply measures it.
             elif LEDGER_RE.search("\n".join(texts)):
                 ledger_due = False
-    return Transcript(session, turn, final, light, asked, ledger_due, context, committed, last_reply)
+    return Transcript(session, turn, final, tier, asked, ledger_due, context, committed, last_reply)
 
 
 def _executed_text(command: str) -> str:
@@ -296,13 +314,46 @@ def _executed_text(command: str) -> str:
     return HEREDOC_RE.sub(strip, command)
 
 
-def _commit_problem(session: set[str], turn: set[str], light: bool) -> str:
-    """Why the turn may not commit yet, or "" when it may."""
+def _data_problem(command: str, cwd: object) -> str:
+    """Why a data-tier commit may not run, or "" when it commits only data paths."""
+    if not DATA_COMMIT_RE.fullmatch(command.strip()):
+        return DATA_COMMAND_MESSAGE
+    where = cwd if isinstance(cwd, str) and cwd else None  # The hook's own directory otherwise.
+    try:
+        # Both listings run from the top level: diff prints top-level paths, and
+        # check-attr reads its paths relative to the directory it runs in.
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=where, capture_output=True,
+                             check=True, timeout=10).stdout.rstrip(b"\n")
+        staged = subprocess.run(["git", "diff", "--cached", "--name-only", "--no-renames", "-z",
+                                 "--ignore-submodules=none"],
+                                cwd=top, capture_output=True, check=True, timeout=10).stdout
+        found = subprocess.run(["git", "check-attr", "--cached", "-z", "--stdin", DATA_ATTRIBUTE],
+                               cwd=top, input=staged, capture_output=True, check=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return DATA_MESSAGE.format(problem="git could not list the staged paths and their attributes")
+    paths = [path for path in staged.split(b"\0") if path]
+    if not paths:
+        return DATA_MESSAGE.format(problem="nothing is staged")
+    fields = found.split(b"\0")
+    # check-attr -z prints path, attribute and value for each path.
+    # A staged attributes file could mark itself, so it is never data.
+    data = {path for path, value in zip(fields[0::3], fields[2::3])
+            if value == b"set" and path.rsplit(b"/", 1)[-1] != b".gitattributes"}
+    other = [path.decode("utf-8", "replace") for path in paths if path not in data]
+    if not other:
+        return ""
+    shown = ", ".join(other[:10]) + (f" and {len(other) - 10} more" if len(other) > 10 else "")
+    return DATA_MESSAGE.format(problem=f"it is not set on {shown}")
+
+
+def _commit_problem(session: set[str], turn: set[str], tier: str) -> str:
+    """Why the turn may not commit yet, or "" when it may. The data tier is
+    judged by `_data_problem` instead."""
     if not session:
         return ""
     if not turn & COMMIT_SKILLS:
         return MESSAGE
-    checks = LIGHT_CHECKS if light else FULL_CHECKS
+    checks = LIGHT_CHECKS if tier == "light" else FULL_CHECKS
     missing = [name for name, satisfied_by in checks.items() if not turn & satisfied_by]
     return CHECKS_MESSAGE.format(missing=", ".join(missing)) if missing else ""
 
@@ -311,7 +362,8 @@ def blocked(event: dict) -> str:
     """The block message for a Bash event, or "" to allow it."""
     if event.get("tool_name") != "Bash":
         return ""
-    if not GIT_COMMIT_RE.search(_executed_text(str((event.get("tool_input") or {}).get("command", "")))):
+    command = str((event.get("tool_input") or {}).get("command", ""))
+    if not GIT_COMMIT_RE.search(_executed_text(command)):
         return ""
     # A commit sent in the same parallel batch as the skill read can reach the
     # hook before the read is written, so re-read briefly before blocking.
@@ -321,7 +373,9 @@ def blocked(event: dict) -> str:
             seen = _loaded_skills(event["transcript_path"])
         except (KeyError, TypeError, OSError):
             return ""  # No readable transcript: nothing to judge against.
-        problem = _commit_problem(seen.session, seen.turn, seen.light)
+        if seen.session and seen.tier == "data":
+            return _data_problem(command, event.get("cwd"))
+        problem = _commit_problem(seen.session, seen.turn, seen.tier)
         if not problem:
             return ""
         if attempt < RECHECKS:

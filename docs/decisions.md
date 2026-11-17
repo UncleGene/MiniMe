@@ -115,12 +115,22 @@ current position.
   runs the full tier (doc-sync, scope, simplification, review, verification,
   commit). When in doubt, use the full tier. The strictest applicable rule
   wins: a user, memory or project-guide rule that requires a check the tier
-  skips overrides the tier. Reflection writes a learnings entry only when it
-  produces an action; session checkpoints are written only at handoffs.
+  skips overrides the tier. Files whose path has the neutral `commit-data` git
+  attribute set (records a repository marks, not code or docs) are outside
+  the doc, scope, simplifier and review checks, which run on the rest of the
+  diff, and the tier is picked from that rest; a commit of data files only
+  takes the data tier, which runs only the project's full check. Reflection
+  writes a learnings entry only when it produces an action; session
+  checkpoints are written only at handoffs.
 - Alternatives: any doc change qualifying (requirement edits skip review); a
-  diff-size threshold (a one-line safety change skips review).
+  diff-size threshold (a one-line safety change skips review). For data: a
+  MiniMe-named attribute or config file (leaves a MiniMe trace in the
+  consuming repo, Decision 3); detection by file extension (CSV fixtures and
+  generated code look like data).
 - Consequences: applies to MiniMe (`AGENTS.md`, `minime-self-commit`) and to
-  consumers through `minime-project-commit`.
+  consumers through `minime-project-commit`. The data tier exists only where
+  a repository sets `commit-data`; MiniMe sets it nowhere. Data content gets
+  no review, only the project's own checks.
 
 ## Decision 8 — No personal data or other-project references
 
@@ -223,8 +233,13 @@ current position.
     `minime-project-commit` or `minime-self-commit` and the check skills:
     doc-sync (or doc-check), scope-boundary, simplifier and reviewer. A turn
     whose latest line-leading `Commit tier:` statement says `light` may skip
-    the reviewer. Messages queued mid-turn are attachments, not new turns, so
-    checks run before one still count.
+    the reviewer. A turn whose latest tier statement says `data` needs no
+    skill when `git check-attr` reports `commit-data` set for every staged
+    path other than a `.gitattributes` and the command is one of a few exact
+    `git commit -m`/`-F` shapes alone in its call, so it can only commit the
+    index; otherwise it blocks naming the paths.
+    Messages queued mid-turn are attachments, not new turns, so checks run
+    before one still count.
   - Claude Code only: `PreToolUse` on `AskUserQuestion` requires one question
     per call, `Default if no reply:` in the question, `Pros:`, `Cons:` and
     `Locks in:` in each option, and no workflow item cited by number or code
@@ -245,8 +260,9 @@ current position.
   settings, adding or removing only their own entry. The installed hook
   duplicates a little transcript parsing so it runs without the MiniMe repo.
   It proves a skill was loaded and markers are present, not that the skill was
-  followed or the content is sound, and it trusts the tier statement because
-  it cannot judge a diff. Codex runs it only after the user trusts it in
+  followed or the content is sound, and it trusts a light or full tier
+  statement because it cannot judge a diff; only the data tier is checked
+  against the repository. Codex runs it only after the user trusts it in
   `/hooks`, and has no stop, choice-UI or compaction coverage.
 
 ## Decision 14 — Installer-generated host adapters

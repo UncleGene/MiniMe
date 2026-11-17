@@ -49,14 +49,27 @@ default, rule or option is requirement or decision text, so it takes the full
 tier. When in doubt, use the full tier. The strictest applicable rule wins:
 when a user, memory or project-guide rule requires a check the tier would
 skip, run it. State the choice in a reply line, `Commit tier: light — <why>`
-or `Commit tier: full`; the installed agent commit gate lets only a turn that
-states the light tier skip the reviewer.
+or `Commit tier: full`; the installed agent commit gate lets a turn that
+states the light tier skip the reviewer, and one that states the data tier
+(below) skip every check skill.
 
-Execute these checks sequentially — delegate to each named skill by reading
-its file and following its procedure. After each check passes with no
-blocking findings and no user decision required, proceed immediately to the
-next check in the same turn — do not end the turn between sequential
-passing gates.
+Data files: a repository may set the git attribute `commit-data` on paths that
+hold records rather than code or docs (`git check-attr --cached commit-data --
+<path>` reports `set`). Those files are outside the doc, scope, simplifier
+and reviewer checks: each runs on the rest of the staged diff,
+`git diff --cached -- . ':(exclude,attr:commit-data)'`, and the tier is picked
+from that rest. When every staged path has `commit-data` set, use the data
+tier: state `Commit tier: data — <why>`, run only the full project check the
+project guide names (or the full test, lint and type gates when it names
+none), re-read the diff, write the message and commit the index with
+`git commit -m '<message>'` (or `-F <file>`) alone in its call, after staging
+in an earlier call. The installed gate verifies the attribute and that shape.
+
+In the light and full tiers, execute these checks sequentially — delegate to
+each named skill by reading its file and following its procedure. After each
+check passes with no blocking findings and no user decision required, proceed
+immediately to the next check in the same turn — do not end the turn between
+sequential passing gates.
 
 - Read the minime-doc-sync skill file and execute it against the staged
   diff; confirm README and all other docs reflect the changes. Stale docs

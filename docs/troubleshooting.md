@@ -149,7 +149,12 @@ Fix the flagged line, exempt the path with the `-slop-scan` git attribute in
 This is the gate working. The agent must load the commit skill and its check
 skills in the same turn as the commit, then retry; the message names what is
 missing. Staging chained to a blocked commit (`git add ... && git commit`) did
-not run either, so the agent stages in its own call.
+not run either, so the agent stages in its own call. A `Commit tier: data`
+commit is blocked when a staged path lacks the `commit-data` attribute (the
+message names it; mark it in `.gitattributes` if it is data, or commit it in
+the full tier), or when the command is not one of the exact shapes the
+message lists: a plain `git commit -m <message>` or `-F <file>` alone in its
+call, with the message in single quotes (several lines allowed) or in a file.
 
 **The agent recommends `/clear` after a commit or a long break.**
 This is the fresh-session nudge. Once a MiniMe session's context passes 300k

@@ -128,7 +128,8 @@ consuming repos. `scripts/slop-scan` runs as a global pre-commit hook through
 `scripts/commit-gate` runs as a Claude Code or Codex `PreToolUse` hook and
 blocks an agent's `git commit` until the commit skill and its check skills
 (doc-sync, scope-boundary, simplifier, and the reviewer unless the turn states
-the light tier) are loaded in that turn;
+the light tier) are loaded in that turn, or, for a turn that states the data
+tier, until every staged path has the `commit-data` git attribute set;
 in Claude Code it is also a `Stop` hook that keeps a MiniMe turn from ending
 without a recommended next action or on a prose question, and it rejects
 choice-UI calls that drop the decision-prompt shape. After a compaction it
