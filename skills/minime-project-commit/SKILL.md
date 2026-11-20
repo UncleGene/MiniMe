@@ -121,12 +121,12 @@ sequential passing gates.
 - Commit readiness: committed | commit-ready | not commit-ready
 - Next action: the next concrete action
 
-After a **pass** verdict and successful commit, delegate to
-minime-decision-prompt. Read its skill file and follow its procedure —
-produce a "what next?" menu. Do NOT end the session without presenting this
-prompt, except while autopilot (including one a "go" reply started) has
-blocks left: continue with the next block instead. After the last block, or
-when autopilot stops, present the menu. Typical options:
+After a **pass** verdict and successful commit, continue with the next block
+while autopilot (including one a "go" reply started) has blocks left.
+Otherwise end with `Recommended next action:`; when two or more materially
+different next steps remain, ask through minime-decision-prompt — read its
+skill file and follow its procedure — in the choice UI, never as a text list.
+Typical next steps:
 
 - **Continue to next slice** — route to `minime-implementation-step-selector`.
 - **Stop and reflect** — write a session checkpoint and update learnings.

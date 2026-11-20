@@ -132,7 +132,8 @@ blocks an agent's `git commit` until the commit skill and its check skills
 the light tier) are loaded in that turn, unless every staged path has the
 `commit-data` git attribute set and the command commits only the index;
 in Claude Code it is also a `Stop` hook that keeps a MiniMe turn from ending
-without a recommended next action or on a prose question, and it rejects
+without a recommended next action, on a prose question or on a text option
+list, and it rejects
 choice-UI calls that drop the decision-prompt shape. After a compaction it
 reminds the agent that loaded MiniMe skills are still in force and requires
 the step-0 ledger. Once a session's context passes 300k tokens, it has the

@@ -1157,6 +1157,21 @@ class TranscriptAuditCLITests(unittest.TestCase):
         self.assertEqual({f["project"] for f in report["findings"]}, {"project-1"})
         self.assertEqual([f for f in report["findings"] if f["session"] == "ffffffff"], [])
 
+    def test_reports_a_text_option_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            claude = Path(d) / "claude"
+            self._write(claude / "proj" / "bbbbbbbb-2222.jsonl", [
+                {"type": "user", "timestamp": "2026-10-01T00:00:00Z",
+                 "message": {"role": "user", "content": "<command-name>/minime</command-name>"}},
+                {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text":
+                    "Options:\n1. Ship\n2. Test first\n\nRecommended next action: ship."}]}}])
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts" / "minime"), "transcript-audit",
+                 "--claude-root", str(claude), "--codex-root", str(Path(d) / "none"), "--json"],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual([f["type"] for f in json.loads(result.stdout)["findings"]], ["prose-choice"])
+
     def test_reads_compressed_codex_rollouts_like_plain_ones(self):
         # Codex compresses older rollouts in place; skipping them hid most of a month.
         self.assertEqual(self._run(compress_codex=True), self._run())
@@ -1575,6 +1590,13 @@ class AgentHookCLITests(unittest.TestCase):
             ("bold question line", [user("go"), skill, reply("**Ship it?**\n\nRecommended next action: ship it.")], False, 2, question),
             *[(f"not a closing prose question: {text!r}", [user("go"), skill, reply(f"{text}\n\n{done}")], False, 0)
               for text in not_last],
+            ("ends on a text option list", [user("go"), skill, reply(
+                "**Your options:**\n1. Ship now\n2. Add tests first\n\nRecommended next action: ship now.")],
+             False, 2, "text list"),
+            ("text option list after the choice UI", [user("go"), skill, asked, reply(
+                "Options:\n- A\n- B\n\nRecommended next action: A.")], False, 0),
+            ("numbered summary is not a choice", [user("go"), skill, reply(
+                "What changed:\n1. Fixed X\n2. Fixed Y\n\nRecommended next action: push.")], False, 0),
             ("question while continuing from this hook", [user("go"), skill, reply(ask)], True, 0),
             ("skill only in an earlier turn", [user("go"), skill, reply(done), user("thanks"), reply("Sure.")],
              False, 0),
@@ -1597,6 +1619,42 @@ class AgentHookCLITests(unittest.TestCase):
                     self.assertEqual(result.returncode, code, result.stderr)
                     for text in named:
                         self.assertIn(text, result.stderr)
+
+    # Real reply endings, reworded: a text option list asks the user to pick
+    # from a closing list; summaries, status lists and instructions do not.
+    PROSE_CHOICES = [
+        "Done.\n\n**Your options:**\n1. Edit the config\n2. Change the code\n\nI'd recommend option 1.",
+        "**Infrastructure:** the four options from the checkpoint still wait for your pick:\n"
+        "1. A decisions skill\n2. Add the missing people\n3. Export the findings",
+        "Pick one:\n- (a) the parser\n- (b) the tests",
+        "Options:\n- A\n- B\n\nRecommended next action: A.",
+        "Reply with a number:\n1. Keep\n2. Drop",
+        "Which one should go first?\n- **A.** speed\n- **B.** safety",
+        "Done.\n\nOptions:\n  - a\n  - b",
+        "Options:\n\n- a\n\n- b",
+        "Options:\n- a\n  more about a\n- b\n\n> a quote",
+        "I need your pick:\n- a\n- b",
+    ]
+    NOT_PROSE_CHOICES = [
+        "What changed:\n1. Fixed X\n2. Fixed Y\n\nAll tests pass.",
+        "To pick it up in the editor:\n- delete the old keyword\n- run the first batch",
+        "Two explanations remain, and I won't choose between them:\n- one\n- two",
+        "Two things are still open when you pick this up:\n- the export\n- the keywords",
+        "Some ended in a request only you can decide:\n- the archive letter\n- the scan",
+        "Options:\n- A",
+        "```\nOptions:\n- A\n- B\n```",
+        "Options:\n- A\n- B\n\nI did X.\n\nThen Y happened.",
+        "| option | cost |\n|---|---|\n| a | 1 |\n| b | 2 |",
+        "**If you pick C, I need from you:**\n1. An account\n2. A token",
+        "Notes:\n- a\n- b\n\nNo options: just done.",
+        "I'll pick one:\n- a\n- b",
+        "Options:\n- a\n  - sub one\n  - sub two",
+    ]
+
+    def test_text_option_lists_are_told_apart_from_other_lists(self):
+        gate = minime._commit_gate()
+        self.assertEqual([t for t in self.PROSE_CHOICES if not gate.offers_prose_choice(t)], [])
+        self.assertEqual([t for t in self.NOT_PROSE_CHOICES if gate.offers_prose_choice(t)], [])
 
     def test_compaction_reminds_and_requires_a_ledger(self):
         def user(text):

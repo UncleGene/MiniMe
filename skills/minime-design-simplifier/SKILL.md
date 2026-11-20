@@ -150,12 +150,13 @@ Apply DRY and YAGNI as first-class review principles:
     risk if deferred:
 - Items confirmed load-bearing (do not simplify):
 - Open questions for the user:
-
-## Approval Request
-Apply which findings? (list ids — none applied without explicit approval)
-Defer which findings?
-Reject which findings?
 ```
+
+Then ask for approval through `minime-decision-prompt` in the choice UI, never
+as a list of ids to type back: one multi-select question whose options are the
+findings (at most four, highest impact first), each with its pros, cons and
+lock-in. Picked findings are applied; the rest are deferred. None is applied
+without that explicit pick.
 
 ## Hand-off
 

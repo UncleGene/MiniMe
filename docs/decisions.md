@@ -247,8 +247,8 @@ current position.
     ("Decision 13", "Q7", "M3") outside an option's `Affects:`.
   - Claude Code only: the `Stop` hook blocks once when a turn that loaded a
     MiniMe skill ends without `Recommended next action:` (progress updates
-    included), or when its last prose line before that is a question and the
-    turn did not use the choice UI. After a compaction it also blocks each
+    included), or when it ends, without having used the choice UI, on a
+    question or on a text option list (Decision 19). After a compaction it also blocks each
     stop once until a reply starts a line with `Ledger:`.
   - Claude Code only: on `SessionStart` with the `compact` matcher it reminds
     the agent that the loaded MiniMe skills are still in force.
@@ -395,17 +395,16 @@ current position.
   commit, and each new turn reloaded the commit skill and its checks.
 - Decision: a reply of "go", "go on", "continue" or "proceed" to a
   recommended next action that continues work, or one that selects a
-  continue-work option in a post-commit menu, authorizes `minime` autopilot
+  continue-work option in a next-step choice, authorizes `minime` autopilot
   for the current work list (the plan's or the request's remaining blocks, or
   the list the agent last stated): each finished block is committed and the
-  agent continues without the post-commit menu until the list is done, an
+  agent continues without stopping until the list is done, an
   autopilot stop condition applies, or the user gives a new direction. Every
   turn still ends with a next action. As an answer to a pending choice, "go"
   approves the recommended option only when it is low-impact, in-repo and
   reversible (`minime-decision-prompt`); a "go" that selects a stop option,
   answers an unsettled decision or needs an explicit pick starts no
-  autopilot. A hook that later enforces the post-commit menu must exempt
-  turns of such a run.
+  autopilot.
 - Alternatives: a menu after every commit (stops runs the user already
   authorized); a dedicated autopilot command (one more thing to type for what
   "Go" already says).
@@ -414,3 +413,33 @@ current position.
   fresh-session nudge (Decision 17) still apply to each. Guard: "go" never
   approves an option that creates a tracked doc,
   edits the project guide or reaches outside the repo.
+
+## Decision 19 — Choices in the choice UI, no mandatory post-commit menu
+
+- Status: accepted; implemented in the Claude Code Stop hook and
+  `transcript-audit`.
+- Context: from 2026-11-10 to 2026-11-20, 74% of commit turns outside "go"
+  runs in MiniMe sessions ended without the post-commit "what next?" menu
+  `minime-project-commit` required, and 33 of those ended on options written
+  as a text list the user had to type back; a consuming project's owner
+  flagged such lists twice.
+- Decision: after a commit the agent ends with a recommended next action;
+  only when two or more materially different next steps remain does it ask,
+  through `minime-decision-prompt` in the choice UI. The Stop hook blocks
+  once a MiniMe turn that, without using the choice UI, ends on a text option
+  list: two or more closing list items whose lead-in or closing line asks the
+  user to choose ("Options:", "pick one", "which option", "reply with").
+  `transcript-audit` reports such turns as `prose-choice`. The
+  design-simplifier's approval asks one multi-select question instead of a
+  list of ids. Reflection keeps its triggers and is offered as a next action.
+- Alternatives: enforce the menu after every commit outside "go" runs (would
+  return about three in four commit turns and ask even when one next step is
+  obvious); report only (text lists keep reaching the user).
+- Consequences: no guaranteed reflect prompt after each commit. The detector
+  needs an explicit choice phrase, so a list that only implies a choice
+  passes; a numbered summary or instructions list does not trigger it. On
+  replies from 2026-11-01 to 2026-11-20 it flagged 8 of 11,738 text blocks,
+  at least 5 of them real offers, so a wrong block costs about one extra
+  round-trip a week. The audit loads the detector from the repo's gate
+  script and the hook runs the installed copy, so they agree after a
+  reinstall.

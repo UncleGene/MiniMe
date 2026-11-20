@@ -6,6 +6,9 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
+import functools
+import importlib.machinery
+import importlib.util
 import json
 import os
 import platform
@@ -1625,6 +1628,18 @@ def _parse_codex_transcript(path: Path) -> dict[str, Any]:
     return session
 
 
+@functools.cache
+def _commit_gate() -> Any:
+    """The installed-hook source, loaded once so the audit judges turn endings
+    with the same detector the Stop hook uses."""
+    loader = importlib.machinery.SourceFileLoader("minime_commit_gate", str(repo_root() / "scripts" / "commit-gate"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None  # A source loader always yields a spec.
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 def _transcript_findings(session: dict) -> list[dict]:
     findings = []
     session_skills: set[str] = set()
@@ -1644,6 +1659,8 @@ def _transcript_findings(session: dict) -> list[dict]:
         if (turn["skills"] and not turn["asked_with_ui"]
                 and any(line.rstrip().endswith("?") for line in final.splitlines())):
             kinds["prose-question"] = "MiniMe skill turn asked a question without the choice UI"
+        elif turn["skills"] and not turn["asked_with_ui"] and _commit_gate().offers_prose_choice(final):
+            kinds["prose-choice"] = "MiniMe skill turn offered options as a text list without the choice UI"
         checked = carried
         for command in turn["commands"]:
             is_check = bool(CHECK_COMMAND_RE.search(command))

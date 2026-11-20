@@ -34,7 +34,7 @@ and produce a structured orchestration summary.
    request, resume, or post-compaction continuation. Include:
    reflection/checkpoint, request classification, course-correction triage,
    affected docs/code, phase-quality guard, confirmation need, implementation,
-   completion gates, handoff need, structured output, and continuation menu.
+   completion gates, handoff need, structured output, and next action.
    Mark each item `pending`, `pass`, `blocked`, or `not-configured` with one
    evidence sentence. Use `not-configured` when the active project guide lacks
    the contract needed to run that item; do not silently skip it. Start the
@@ -132,10 +132,10 @@ Use only when the user explicitly authorizes continued autonomous work. Repeat
 the select, plan, implement, validate, commit loop until a stop condition
 applies. A reply of "go" (or "go on", "continue", "proceed") to a recommended
 next action that continues work, or one that selects a continue-work option in
-a post-commit menu, authorizes it for the current work list: the remaining
+a next-step choice, authorizes it for the current work list: the remaining
 blocks the plan or the user's request names, or the list the agent last
-stated. Commit each finished block and continue without the post-commit menu
-until that list is done, a stop condition below applies, or the user gives a
+stated. Commit each finished block and continue without stopping until that
+list is done, a stop condition below applies, or the user gives a
 new direction. A "go" that selects a stop option, answers an unsettled
 decision, or meets the `minime-decision-prompt` guard on terse replies does
 not start autopilot. Each turn still ends with `Recommended next action:`.
@@ -191,8 +191,8 @@ commit or run simplification/review; mandatory gates are not user choices.
 Delegate to minime-decision-prompt only when a genuine user-facing choice
 remains. Read its skill file and follow its procedure — do NOT render the menu
 as prose. Only the decision-prompt skill's procedure produces the interactive
-choice UI; plain markdown text does not. Pass a context-specific continuation
-menu. Options depend on chain outcome:
+choice UI; plain markdown text does not. Pass context-specific options, which
+depend on the chain outcome:
 
 - Implementation complete with uncommitted changes: continue through the
   project's required completion gates and commit procedure in the same turn;

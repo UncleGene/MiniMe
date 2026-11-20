@@ -203,8 +203,10 @@ Behavior:
 - When a turn ends, the `Stop` hook blocks once (exit 2, with a message to the
   agent) if the turn loaded a MiniMe skill and its last main-thread reply does
   not contain `Recommended next action`, or its last prose line before that
-  line (not code, a quote, a heading or a table row) ends in `?` while the
-  turn made no `AskUserQuestion` call. It does not
+  line (not code, a quote, a heading or a table row) ends in `?`, or it ends on
+  a text option list (two or more closing list items introduced or followed
+  by a choice phrase such as `Options:`, "pick one" or "which option"), while
+  the turn made no `AskUserQuestion` call. It does not
   block again while the agent is continuing from that block
   (`stop_hook_active`).
 - After a compaction in a session that loaded a MiniMe skill, the
@@ -317,7 +319,9 @@ Behavior:
 - Counts MiniMe skill loads per skill: slash commands, Skill-tool calls,
   injected `<skill>` blocks, `$minime*` mentions and reads of a `SKILL.md`.
 - Flags, once per turn: `no-next-action`, `next-action-unformatted`,
-  `prose-question` (Claude only), `commit-unverified` (no test or check command
+  `prose-question` and `prose-choice` (a text option list, judged by the
+  repo's copy of the `Stop` hook's detector; Claude only),
+  `commit-unverified` (no test or check command
   earlier in the turn or since the previous commit) and
   `commit-without-commit-skill`. A Claude Code turn cut off during a tool call
   has no ending reply, so it is not judged for a next action or a question.

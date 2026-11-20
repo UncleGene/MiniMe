@@ -14,9 +14,9 @@ transcript. Sessions that never loaded a MiniMe skill are not affected. Exit 2
 blocks the call and shows the message to the agent.
 
 In Claude Code it is also a Stop hook: a turn that loaded a MiniMe skill may
-not end without `Recommended next action:` in its last message, nor with a
-question as the last prose line before it when the turn has not used the
-choice UI. It blocks once per stop, so
+not end without `Recommended next action:` in its last message, nor, when the
+turn has not used the choice UI, with a question as the last prose line before
+it or with a text option list. It blocks once per stop, so
 the agent's fix ends the turn.
 
 In Claude Code it also gates the choice UI (`AskUserQuestion`) in a session
@@ -108,6 +108,21 @@ DATA_COMMIT_RE = re.compile(r"git(?: -C (?P<dir>[\w./-]+))? commit(?: -[qsv]+| -
 NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
 STOP_MESSAGE = ("MiniMe next-action gate: this turn loaded a MiniMe skill, so end it with "
                 "`Recommended next action: <one concrete step>`. Add that line now.")
+PROSE_CHOICE_MESSAGE = ("MiniMe choice gate: this turn ends by offering options as a text list. Ask "
+                        "through the choice UI (AskUserQuestion) in the minime-decision-prompt shape, or "
+                        "end with one recommended next action instead.")
+# A text option list: two or more list items closing the reply (before any
+# next-action line, with at most one prose line after them) whose lead-in or
+# closing line asks the user to choose. Bare "pick" or "choose" is not enough
+# ("pick it up", "I won't choose"), and a list ending on a question is left to
+# the prose-question check.
+LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d{1,2}[.)]|\(?[a-hA-H][.)]|\*\*(?:option\s+)?[A-H1-9][.):]?\*\*)\s+\S")
+CHOICE_CUE_RE = re.compile(r"\byour options\b|\boptions?\s*:|\bwhich (?:one|option|of these)\b|"
+                           r"\b(?:pick|choose|select) (?:one|between|from|an? option)\b|\breply with\b|"
+                           r"\b(?:wait(?:s|ing)? for|need) your (?:pick|choice)\b|\byour (?:pick|choice)\s*:", re.I)
+# A negated cue ("no options:") is no offer, nor is the agent picking for itself ("I'll pick one").
+NEGATED_RE = re.compile(r"(?:\bnot|n't|\bnever|\bno)\s+$", re.I)
+SELF_RE = re.compile(r"\bI(?:'ll| will)?\s+$")
 PROSE_QUESTION_MESSAGE = ("MiniMe question gate: this turn ends on a prose question. Ask it through "
                           "the choice UI (AskUserQuestion) in the minime-decision-prompt shape, or "
                           "restate the line so it is not a question.")
@@ -449,6 +464,46 @@ def _ends_on_question(text: str) -> bool:
         and last.rstrip("*_").endswith("?")
 
 
+def offers_prose_choice(text: str) -> bool:
+    """Whether a reply ends by offering the user options as a text list."""
+    lines: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            fenced = not fenced
+        elif NEXT_ACTION_RE.search(stripped):
+            break
+        elif not fenced and not stripped.startswith(("|", ">")):
+            lines.append(line.rstrip())
+    while lines and not lines[-1].strip():
+        lines.pop()
+    tail = ""
+    if lines and not LIST_ITEM_RE.match(lines[-1].lstrip()) and not lines[-1][:1].isspace():
+        tail = lines.pop()
+    # Walk back over the closing list: items, their indented continuations and
+    # single blank lines between items. Count the items at the outermost indent.
+    indents: list[int] = []
+    index = len(lines) - 1
+    while index >= 0:
+        line = lines[index]
+        if not line.strip():
+            if index == 0 or not lines[index - 1].strip():
+                break
+        elif LIST_ITEM_RE.match(line.lstrip()):
+            indents.append(len(line) - len(line.lstrip()))
+        elif not line[:1].isspace():
+            break
+        index -= 1
+    if indents.count(min(indents, default=0)) < 2:
+        return False
+    lead = lines[index].strip() if index >= 0 else ""
+    return any(not NEGATED_RE.search(part[:cue.start()])
+               and not (cue.group().lower().startswith(("pick", "choose", "select"))
+                        and SELF_RE.search(part[:cue.start()]))
+               for part in (lead, tail) for cue in CHOICE_CUE_RE.finditer(part))
+
+
 def stop_blocked(event: dict) -> str:
     """The block message for a Stop event, or "" to let the turn end."""
     if event.get("stop_hook_active"):
@@ -465,6 +520,8 @@ def stop_blocked(event: dict) -> str:
             messages.append(STOP_MESSAGE)
         if seen.turn and not seen.asked and _ends_on_question(seen.final):
             messages.append(PROSE_QUESTION_MESSAGE)
+        elif seen.turn and not seen.asked and offers_prose_choice(seen.final):
+            messages.append(PROSE_CHOICE_MESSAGE)
         if seen.session and seen.committed and seen.context > FRESH_CONTEXT and "/clear" not in seen.final:
             messages.append(FRESH_MESSAGE.format(k=seen.context // 1000))
         message = " ".join(messages)

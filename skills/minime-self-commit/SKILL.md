@@ -57,8 +57,8 @@ Required rows:
 - Shared gate: reflection if the project guide's reflection trigger fires.
 - Commit message: atomic conventional title and why-body.
 - Commit action: commit created through this ledger and shared commit gate.
-- Post-commit continuation: next step or decision prompt presented, or the
-  next autopilot block started.
+- Post-commit continuation: `Recommended next action:` stated (the choice UI
+  when two or more distinct steps remain), or the next autopilot block started.
 
 Direct git commit remains forbidden until every required ledger row is
 `status: pass` or an allowed light-tier skip. Running some checks manually does
@@ -69,4 +69,4 @@ not authorize `git commit`; finish the ledger and the delegated `minime-project-
 After the MiniMe-internal checks above pass, delegate to minime-project-commit.
 Read its skill file and follow its procedure. Do not commit directly —
 `minime-project-commit` owns the shared commit rules, scope check, code
-review, and post-commit prompt.
+review, and post-commit next step.

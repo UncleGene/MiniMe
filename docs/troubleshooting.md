@@ -158,6 +158,12 @@ command is one of the exact shapes the message lists, alone in its call (see
 the [CLI reference](cli.md#scriptsminime-claude-hook-installuninstall)): in
 short, `git [-C <dir>] commit -m '<message>'` or `-F <file>`.
 
+**The agent's turn is returned by "MiniMe choice gate".**
+This is the gate working: the turn ended by offering options as a text list.
+The agent asks again through the choice dialog, or ends with one recommended
+next action. It is returned once per turn; see the `Stop` hook in the
+[CLI reference](cli.md#scriptsminime-claude-hook-installuninstall).
+
 **The agent recommends `/clear` after a commit or a long break.**
 This is the fresh-session nudge. Once a MiniMe session's context passes 300k
 tokens, every request re-reads it, so a handoff and a fresh session usually
