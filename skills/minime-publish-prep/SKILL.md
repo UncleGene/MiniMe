@@ -63,14 +63,21 @@ the project's own privacy tests and commit gates.
    committed work. Limit what the public log exposes, especially complete
    roadmap reversals: squash the local-only commits (re-run the step-1
    classification first) into milestone-grained commits with clean messages.
+   Every commit the rewrite keeps publishes its whole tree, so content that
+   steps 2–5 removed survives in any boundary before the cleanup commit. Scan
+   each planned boundary commit with the step-2 patterns: its tree with
+   `git grep -I <pattern> <commit>` and its message with
+   `git log -1 --format=%B <commit> | grep <pattern>`. When one still holds
+   removed content, move the cleanup into it or squash to a single commit; a
+   published boundary needs the force-push decision below.
    Take a fresh bundle of the pre-rewrite state, then present the squash plan
    — ranges and resulting messages — through `minime-decision-prompt` and get
    approval before rewriting anything; the bundle is a safety net, not a gate.
    Never rewrite published commits without an explicit user decision made the
    same way — force-pushing published history is not a default. After the
-   rewrite, re-run the privacy checks and the project gates, and confirm the
-   new commit messages leak nothing; if any check fails, restore from the
-   fresh bundle and replan.
+   rewrite, re-run the privacy checks and the project gates, and scan every
+   rewritten commit's tree and message, not only the head; if any check
+   fails, restore from the fresh bundle and replan.
 
 ## Skeptic pass
 
@@ -78,6 +85,9 @@ the project's own privacy tests and commit gates.
   denylist passes, e.g. `git ls-files -z | xargs -0 grep -nEi
   "<home-dir>|<git config user.name>|@"` for user directories, the author's
   name and email addresses.
+- A clean scan proves nothing until its pattern has matched: run each
+  pattern against a known-positive line first. `\b` is not POSIX ERE and
+  `git grep -E` on macOS matches nothing with it; use `-w` or `-P`.
 - Untracked files are not safe to ignore: confirm private artifacts
   (checkpoints, denylists, local notes) are ignored by git, not merely
   uncommitted.
@@ -91,7 +101,8 @@ the project's own privacy tests and commit gates.
 - Remote baseline: published commits vs local-only commits; backup bundle path
 - Privacy findings and resolutions, including backfilled summaries
 - Doc coherence findings (from `minime-doc-sync`) and decision-record edits
-- History plan: squash ranges and resulting commits; any force-push decision
+- History plan: squash ranges and resulting commits, the per-commit scan
+  result; any force-push decision
 - README and developers-doc changes
 - Verification results
 - Verdict: ready-to-publish | fixes-applied-recheck | blocked (with owner)
