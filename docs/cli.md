@@ -159,21 +159,27 @@ Behavior:
 - The same turn must also load the check skills: `minime-doc-sync` (or
   `minime-doc-check`), `minime-scope-boundary`, `minime-code-simplifier` and
   `minime-code-reviewer`. A turn whose latest line starting with
-  `Commit tier:` says `light` may skip the reviewer; a quote mid-sentence does
-  not count, and a later `Commit tier: full` withdraws it. The gate trusts the
-  statement and cannot judge the diff.
+  `Commit tier:` since its last successful commit says `light` may skip the
+  reviewer; a quote mid-sentence does not count, a later `Commit tier: full`
+  withdraws it, and each commit needs its own line (Claude Code only; a Codex
+  `light` line lasts the turn). The gate trusts the
+  statement and cannot judge the diff. It may run before a line written in the
+  commit call's own reply reaches the transcript, so the agent states the tier
+  when it stages.
   A message queued mid-turn does not start a new turn.
-- A turn whose latest tier line says `Commit tier: data` needs no skill when
-  every path in `git diff --cached --name-only` has the `commit-data` git
-  attribute set (`git check-attr --cached`, run from the top level of the
-  repository at the hook event's working directory) and the command is
-  exactly `git commit [-q|-s|-v|--no-edit] -m <message>` or `-F <file>`,
+- A commit needs no skill and no tier line (the data tier) when every path in
+  `git diff --cached --name-only` has the `commit-data` git attribute set
+  (`git check-attr --cached`, run from the top level of the repository at the
+  hook event's working directory, or at `-C <dir>` resolved from it) and the
+  command is exactly `git [-C <dir>] commit [-q|-s|-v|--no-edit] -m <message>`
+  or `-F <file>`,
   alone in its call. The message is one plain word, a single-quoted string
   (several lines allowed) or a double-quoted string without `$`, backtick,
   backslash or `!`, so the shell cannot run anything before the commit; a
   heredoc in `$(...)` is refused because macOS bash 3.2 can run text from its
-  body. A staged `.gitattributes` is never data. Otherwise it blocks; the
-  message names the unmarked paths. Staging sent in the same parallel batch
+  body. A staged `.gitattributes` is never data. Otherwise the usual checks
+  apply; after a `Commit tier: data` line the block message names the
+  unmarked paths. Staging sent in the same parallel batch
   as the commit can still change the index after the check.
 - Any skill named `minime` or `minime-*` counts as a MiniMe skill, the
   `minime` orchestrator included.

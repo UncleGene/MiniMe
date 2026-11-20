@@ -4,11 +4,13 @@
 A PreToolUse hook for Bash. It blocks `git commit` when the session has loaded
 a MiniMe skill but the current turn lacks a commit skill or any commit check
 skill: doc-sync, scope-boundary, simplifier and reviewer. A turn whose reply
-starts a line with `Commit tier: light` may skip the reviewer; the turn's latest
-`Commit tier:` line counts, so a later `Commit tier: full` withdraws it. A turn
-whose latest tier line is `Commit tier: data` needs no skill, but only commits
-the index, and only when the `commit-data` git attribute is set for every
-staged path. Sessions that never loaded a MiniMe skill are not affected. Exit 2
+starts a line with `Commit tier: light` may skip the reviewer; the latest
+`Commit tier:` line since the turn's last successful commit counts, so a later
+`Commit tier: full` withdraws it and each commit needs its own line. A commit
+of the index alone needs no skill when the `commit-data` git attribute is set
+for every staged path (the data tier); no tier line is needed for it, because
+the gate often runs before a line written in the same reply reaches the
+transcript. Sessions that never loaded a MiniMe skill are not affected. Exit 2
 blocks the call and shows the message to the agent.
 
 In Claude Code it is also a Stop hook: a turn that loaded a MiniMe skill may
@@ -36,6 +38,7 @@ prompt after more than IDLE_SECONDS idle. Neither blocks a tool call or a
 commit; the user runs `/clear`.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -90,15 +93,17 @@ DATA_ATTRIBUTE = "commit-data"
 DATA_MESSAGE = ("MiniMe commit gate: `Commit tier: data` needs the `commit-data` git attribute set on "
                 "every staged path; {problem}. Unstage those paths, or state `Commit tier: full` and run "
                 "minime-project-commit with its checks." + _STAGE_NOTE)
-DATA_COMMAND_MESSAGE = ("MiniMe commit gate: `Commit tier: data` accepts only a commit of the staged index alone "
-                        "in its call: `git commit [-q|-s|-v] -m <message>` or `-F <file>`, where the message is "
-                        "one plain word, a single-quoted string (lines allowed) or a double-quoted string "
-                        "without $, backtick, backslash or !; write a message with apostrophes to a file for -F. "
-                        "Stage in its own call first.")
+DATA_COMMAND_MESSAGE = ("MiniMe commit gate: every staged path is data, but the data tier accepts only a commit "
+                        "of the staged index alone in its call: `git [-C <dir>] commit [-q|-s|-v] -m <message>` "
+                        "or `-F <file>`, where the message is one plain word, a single-quoted string (lines "
+                        "allowed) or a double-quoted string without $, backtick, backslash or !; write a "
+                        "message with apostrophes to a file for -F. Stage in its own call first, or run "
+                        "minime-project-commit with its checks.")
 # The only data-tier command shapes: one `git commit` of the index, nothing
 # before or after it, and a message the shell cannot expand into a command. A
 # heredoc in `$(...)` is left out: macOS bash 3.2 can run text from its body.
-DATA_COMMIT_RE = re.compile(r"git commit(?: -[qsv]+| --(?:quiet|verbose|signoff|no-edit))* "
+# `-C <dir>` names the repository whose index is checked.
+DATA_COMMIT_RE = re.compile(r"git(?: -C (?P<dir>[\w./-]+))? commit(?: -[qsv]+| --(?:quiet|verbose|signoff|no-edit))* "
                             r"(?:-m (?:[\w.,:+/-]+|'[^']*'|\"[^\"$`\\!]*\")|-F [\w./-]+)")
 NEXT_ACTION_RE = re.compile(r"recommended next action", re.I)
 STOP_MESSAGE = ("MiniMe next-action gate: this turn loaded a MiniMe skill, so end it with "
@@ -221,7 +226,7 @@ class Transcript(NamedTuple):
     session: set[str]  # MiniMe skills loaded anywhere in the session
     turn: set[str]  # ...and in the current turn
     final: str  # the turn's latest reply text
-    tier: str  # the turn's latest `Commit tier:` statement, lower-case, or ""
+    tier: str  # the latest `Commit tier:` line since the turn's last commit, lower-case, or ""
     asked: bool  # the turn used the choice UI
     ledger_due: bool  # compacted after a MiniMe load, with no `Ledger:` line since
     context: int  # context tokens of the last main-thread Claude Code request
@@ -286,7 +291,8 @@ def _loaded_skills(path: str) -> Transcript:
                 if size:
                     context, last_reply = size, when or last_reply
                 commits |= _commit_ids(record)
-                committed = committed or _succeeded(record, commits)
+                if _succeeded(record, commits):
+                    committed, tier = True, ""  # A tier line covers one commit.
             session |= found
             turn |= found
             texts = [_codex_text(record)] if "payload" in record else _claude_texts(record)
@@ -314,11 +320,13 @@ def _executed_text(command: str) -> str:
     return HEREDOC_RE.sub(strip, command)
 
 
-def _data_problem(command: str, cwd: object) -> str:
-    """Why a data-tier commit may not run, or "" when it commits only data paths."""
-    if not DATA_COMMIT_RE.fullmatch(command.strip()):
-        return DATA_COMMAND_MESSAGE
+def _data_problem(command: str, cwd: object) -> tuple[bool, str]:
+    """Whether every staged path is data, and why the commit may still not run
+    as a data-tier commit ("" when it may)."""
+    shape = DATA_COMMIT_RE.fullmatch(command.strip())
     where = cwd if isinstance(cwd, str) and cwd else None  # The hook's own directory otherwise.
+    if shape and shape.group("dir"):
+        where = os.path.join(where or os.getcwd(), shape.group("dir"))
     try:
         # Both listings run from the top level: diff prints top-level paths, and
         # check-attr reads its paths relative to the directory it runs in.
@@ -330,10 +338,10 @@ def _data_problem(command: str, cwd: object) -> str:
         found = subprocess.run(["git", "check-attr", "--cached", "-z", "--stdin", DATA_ATTRIBUTE],
                                cwd=top, input=staged, capture_output=True, check=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return DATA_MESSAGE.format(problem="git could not list the staged paths and their attributes")
+        return False, DATA_MESSAGE.format(problem="git could not list the staged paths and their attributes")
     paths = [path for path in staged.split(b"\0") if path]
     if not paths:
-        return DATA_MESSAGE.format(problem="nothing is staged")
+        return False, DATA_MESSAGE.format(problem="nothing is staged")
     fields = found.split(b"\0")
     # check-attr -z prints path, attribute and value for each path.
     # A staged attributes file could mark itself, so it is never data.
@@ -341,9 +349,9 @@ def _data_problem(command: str, cwd: object) -> str:
             if value == b"set" and path.rsplit(b"/", 1)[-1] != b".gitattributes"}
     other = [path.decode("utf-8", "replace") for path in paths if path not in data]
     if not other:
-        return ""
+        return True, "" if shape else DATA_COMMAND_MESSAGE
     shown = ", ".join(other[:10]) + (f" and {len(other) - 10} more" if len(other) > 10 else "")
-    return DATA_MESSAGE.format(problem=f"it is not set on {shown}")
+    return False, DATA_MESSAGE.format(problem=f"it is not set on {shown}")
 
 
 def _commit_problem(session: set[str], turn: set[str], tier: str) -> str:
@@ -367,20 +375,24 @@ def blocked(event: dict) -> str:
         return ""
     # A commit sent in the same parallel batch as the skill read can reach the
     # hook before the read is written, so re-read briefly before blocking.
-    problem = ""
+    problem, data = "", None
     for attempt in range(RECHECKS + 1):
         try:
             seen = _loaded_skills(event["transcript_path"])
         except (KeyError, TypeError, OSError):
             return ""  # No readable transcript: nothing to judge against.
-        if seen.session and seen.tier == "data":
-            return _data_problem(command, event.get("cwd"))
         problem = _commit_problem(seen.session, seen.turn, seen.tier)
         if not problem:
             return ""
+        if data is None:  # Read the index once; the waits are for the transcript.
+            data = _data_problem(command, event.get("cwd"))
+            if data == (True, ""):
+                return ""
         if attempt < RECHECKS:
             time.sleep(RECHECK_SECONDS)
-    return problem
+    all_data, data_problem = data or (False, "")
+    # Explain the data tier when the commit looks meant as one.
+    return data_problem if all_data or seen.tier == "data" else problem
 
 
 def _choice_problem(questions: object) -> str:

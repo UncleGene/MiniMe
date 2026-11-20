@@ -232,12 +232,14 @@ current position.
   - `PreToolUse` on Bash blocks a `git commit` unless the current turn loaded
     `minime-project-commit` or `minime-self-commit` and the check skills:
     doc-sync (or doc-check), scope-boundary, simplifier and reviewer. A turn
-    whose latest line-leading `Commit tier:` statement says `light` may skip
-    the reviewer. A turn whose latest tier statement says `data` needs no
-    skill when `git check-attr` reports `commit-data` set for every staged
-    path other than a `.gitattributes` and the command is one of a few exact
-    `git commit -m`/`-F` shapes alone in its call, so it can only commit the
-    index; otherwise it blocks naming the paths.
+    whose latest line-leading `Commit tier:` statement since its last
+    successful commit (in Codex, the turn) says `light` may skip the reviewer. A commit needs no
+    skill and no statement when `git check-attr` reports `commit-data` set
+    for every staged path other than a `.gitattributes` and the command is
+    one of a few exact `git [-C <dir>] commit -m`/`-F` shapes alone in its
+    call, so it can only commit the index (amended 2026-11-20: the hook often
+    runs before a statement in the same reply is recorded, so a stale `data`
+    or `light` line from an earlier commit used to decide a later one).
     Messages queued mid-turn are attachments, not new turns, so checks run
     before one still count.
   - Claude Code only: `PreToolUse` on `AskUserQuestion` requires one question

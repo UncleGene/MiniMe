@@ -49,9 +49,11 @@ default, rule or option is requirement or decision text, so it takes the full
 tier. When in doubt, use the full tier. The strictest applicable rule wins:
 when a user, memory or project-guide rule requires a check the tier would
 skip, run it. State the choice in a reply line, `Commit tier: light — <why>`
-or `Commit tier: full`; the installed agent commit gate lets a turn that
-states the light tier skip the reviewer, and one that states the data tier
-(below) skip every check skill.
+or `Commit tier: full`, once per commit and in the reply that stages it, not
+in the reply that commits: the installed agent commit gate may read the
+transcript before the commit reply's text is recorded. The gate lets a light
+tier line skip the reviewer for the next commit only, and lets a data-tier
+commit (below) skip every check skill.
 
 Data files: a repository may set the git attribute `commit-data` on paths that
 hold records rather than code or docs (`git check-attr --cached commit-data --
@@ -63,7 +65,8 @@ tier: state `Commit tier: data — <why>`, run only the full project check the
 project guide names (or the full test, lint and type gates when it names
 none), re-read the diff, write the message and commit the index with
 `git commit -m '<message>'` (or `-F <file>`) alone in its call, after staging
-in an earlier call. The installed gate verifies the attribute and that shape.
+in an earlier call (`git -C <dir> commit` also works). The installed gate
+recognises a data-tier commit from the attribute and that shape alone.
 
 In the light and full tiers, execute these checks sequentially — delegate to
 each named skill by reading its file and following its procedure. After each

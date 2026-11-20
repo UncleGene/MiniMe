@@ -11,6 +11,7 @@ import tempfile
 import time
 import types
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -1532,6 +1533,14 @@ class AgentHookCLITests(unittest.TestCase):
                 self.assertIn("MINIME_E_HOOK_SETTINGS_UNREADABLE", result.stdout + result.stderr)
                 self.assertEqual(settings.read_text(), content)
 
+    @staticmethod
+    def _committed(failed: bool = False) -> list[dict]:
+        """A `git commit` call and its result, as Claude Code records them."""
+        return [{"type": "assistant", "message": {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "c1", "name": "Bash", "input": {"command": "git commit -m x"}}]}},
+                {"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "c1", "is_error": failed, "content": "1 file changed"}]}}]
+
     def _gate(self, directory: Path, records: list[dict], command: str,
               cwd: Path | None = None) -> subprocess.CompletedProcess:
         transcript = directory / "t.jsonl"
@@ -1917,6 +1926,11 @@ class AgentHookCLITests(unittest.TestCase):
             ("light tier stated in an earlier turn", [*orchestrated[:2], reply("Commit tier: light"),
                                                       user("continue"), committing[-1], *checks[:3]], 2,
              "minime-code-reviewer"),
+            # A tier line covers one commit: a later commit in the same turn needs its own.
+            ("light tier used by an earlier commit", [*committing, reply("Commit tier: light"), *checks[:3],
+                                                      *self._committed()], 2, "minime-code-reviewer"),
+            ("light tier restated after an earlier commit", [*committing, *checks[:3], *self._committed(),
+                                                             reply("Commit tier: light")], 0, ""),
         ]
         with tempfile.TemporaryDirectory() as d:
             for name, records, code, named in check_cases:
@@ -1967,7 +1981,7 @@ class AgentHookCLITests(unittest.TestCase):
                     self.assertEqual(missing.returncode, 0, missing.stderr)
 
     def test_data_tier_commits_only_staged_paths_marked_commit_data(self):
-        """A data-only commit needs no skill when every staged path has `commit-data` set."""
+        """A data-only commit needs no skill and no tier line when every staged path has `commit-data` set."""
         def reply(text):
             return {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "text", "text": text}]}}
@@ -1988,12 +2002,22 @@ class AgentHookCLITests(unittest.TestCase):
             ("an attributes file that marks itself", ["data/.gitattributes"], data, "git commit -m x", 2,
              "data/.gitattributes"),
             ("nothing staged", [], data, "git commit -m x", 2, "nothing is staged"),
-            ("data tier withdrawn by a later full tier", ["data/a.csv"], [*data, reply("Commit tier: full")],
-             "git commit -m x", 2, "minime-project-commit"),
-            ("data tier only quoted", ["data/a.csv"], [*earlier, reply("The rule: `Commit tier: data` skips them.")],
-             "git commit -m x", 2, "minime-project-commit"),
-            ("data tier from an earlier turn", ["data/a.csv"], [*data, go], "git commit -m x", 2,
+            # The gate often runs before a tier line in the same reply is written, so the index decides.
+            ("no tier line", ["data/a.csv"], earlier, "git commit -m x", 0, ""),
+            ("a full tier line", ["data/a.csv"], [*data, reply("Commit tier: full")], "git commit -m x", 0, ""),
+            ("no tier line, one staged code path", ["data/a.csv", "tool.py"], earlier, "git commit -m x", 2,
              "minime-project-commit"),
+            ("no tier line, a command beyond the index", ["data/a.csv"], earlier, "git commit -am x", 2,
+             "every staged path is data"),
+            # A data line covers one commit, so a code commit after it gets the usual checks.
+            ("a data line used by an earlier commit", ["tool.py"], [*data, *self._committed()],
+             "git commit -m x", 2, "minime-project-commit"),
+            ("a data line after a failed commit", ["tool.py"], [*data, *self._committed(failed=True)],
+             "git commit -m x", 2, "tool.py"),
+            ("-C names the repository", ["data/a.csv"], data, "git -C repo commit -m x", 0, "", ".."),
+            ("-C names a code commit", ["tool.py"], data, "git -C repo commit -m x", 2, "tool.py", ".."),
+            ("-C names no repository", ["data/a.csv"], data, "git -C missing commit -m x", 2,
+             "could not list"),
             *[(f"index-only command: {command!r}", ["data/a.csv"], data, command, 0, "") for command in (
                 "git commit -q -F msg.txt", "git commit -s -m 'add rows; (why) `x` $(y)\n\nbody'",
                 'git commit -m "add rows (why)"', "git commit --quiet -m x\n")],
@@ -2002,7 +2026,7 @@ class AgentHookCLITests(unittest.TestCase):
                   "git commit -am x", "git commit -a -m x", "git commit --all -m x", "git commit -m x data/a.csv",
                   "git commit -m x -- data", "git commit -i -m x data", "git commit --amend -m x",
                   "git commit --amen -m x", "git commit -n -m x", "git commit -m 'x", 'git commit -m "" tool.py',
-                  "git -C other commit -m x", "git -c core.hooksPath=/x commit -m x",
+                  "git -C repo -C x commit -m x", "git -c core.hooksPath=/x commit -m x",
                   "git add tool.py && git commit -m x", "cd data && git commit -m x",
                   "git commit -m x && git --no-pager commit -a -m y", "git commit -m x 2>&1",
                   "git commit -m x \\\n -a", 'git commit -m "$(git add -A)"', "git commit -m `git add -A`",
@@ -2014,23 +2038,26 @@ class AgentHookCLITests(unittest.TestCase):
             ("a top-level code path from a data subdirectory", ["tool.py"], data, "git commit -m x", 2, "tool.py",
              "data"),
         ]
-        with tempfile.TemporaryDirectory() as d:
-            repo = Path(d) / "repo"
+        def run(index: int, staged: list[str], records: list[dict], command: str,
+                subdirectory: list[str]) -> subprocess.CompletedProcess:
+            case = Path(d) / str(index)
+            repo = case / "repo"
             (repo / "data" / "sub").mkdir(parents=True)
-            for name, staged, records, command, code, named, *subdirectory in cases:
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=env)
+            (repo / ".gitattributes").write_text("data/** commit-data\ndata/README.md -commit-data\n")
+            subprocess.run(["git", "add", ".gitattributes"], cwd=repo, check=True, env=env)
+            subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, env=env)
+            for path in staged:
+                (repo / path).write_text("x\n")
+            if staged:
+                subprocess.run(["git", "add", "--", *staged], cwd=repo, check=True, env=env)
+            return self._gate(case, records, command, cwd=repo.joinpath(*subdirectory))
+
+        # Each case has its own repository, so the blocked ones wait out the gate's re-reads together.
+        with tempfile.TemporaryDirectory() as d, ThreadPoolExecutor(max_workers=16) as pool:
+            results = list(pool.map(lambda item: run(item[0], *item[1][1:4], item[1][6:]), enumerate(cases)))
+            for (name, _, _, _, code, named, *_), result in zip(cases, results):
                 with self.subTest(name):
-                    shutil.rmtree(repo / ".git", ignore_errors=True)
-                    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=env)
-                    attributes = repo / ".gitattributes"
-                    attributes.write_text("data/** commit-data\ndata/README.md -commit-data\n")
-                    subprocess.run(["git", "add", ".gitattributes"], cwd=repo, check=True, env=env)
-                    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, env=env)
-                    for path in staged:
-                        target = repo / path
-                        target.write_text(target.read_text() + "x\n" if target.exists() else "x\n")
-                    if staged:
-                        subprocess.run(["git", "add", "--", *staged], cwd=repo, check=True, env=env)
-                    result = self._gate(Path(d), records, command, cwd=repo.joinpath(*subdirectory))
                     self.assertEqual(result.returncode, code, result.stderr)
                     self.assertIn(named, result.stderr)
 
