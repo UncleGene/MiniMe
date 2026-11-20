@@ -237,9 +237,8 @@ current position.
     skill and no statement when `git check-attr` reports `commit-data` set
     for every staged path other than a `.gitattributes` and the command is
     one of a few exact `git [-C <dir>] commit -m`/`-F` shapes alone in its
-    call, so it can only commit the index (amended 2026-11-20: the hook often
-    runs before a statement in the same reply is recorded, so a stale `data`
-    or `light` line from an earlier commit used to decide a later one).
+    call, so it can only commit the index. The data tier needs no statement
+    because the hook often runs before one in the same reply is recorded.
     Messages queued mid-turn are attachments, not new turns, so checks run
     before one still count.
   - Claude Code only: `PreToolUse` on `AskUserQuestion` requires one question
@@ -270,7 +269,7 @@ current position.
 ## Decision 14 — Installer-generated host adapters
 
 - Status: accepted; implemented for Claude Code review and doc check.
-- Context: skills declare `model_tier`, which no host reads yet. Model, effort
+- Context: skills declare `model_tier`; no host reads it directly. Model, effort
   and subagent mechanisms differ by host.
 - Decision: skills name a tier and a context (fresh or main) for each step. The
   installer generates a host-specific adapter from the host-capability table,
@@ -350,8 +349,7 @@ current position.
 
 ## Decision 17 — Nudge toward a fresh session when context grows large
 
-- Status: accepted; implemented in the Claude Code hook, installed
-  2026-11-16 (plan, Fresh-session nudge).
+- Status: accepted; implemented in the Claude Code hook.
 - Context: every request re-reads the whole conversation from the prompt
   cache, so cost per turn grows with context size (REQ-010). From 2026-11-07
   to 2026-11-14, Claude Code Opus 5.5 requests carrying over 300k context
@@ -373,8 +371,7 @@ current position.
   call or a commit, and the user runs `/clear`. The 300k threshold and the
   one-hour idle trigger are the defaults the user accepted. Codex is out of
   scope until its transcripts show the same cost pattern.
-- Alternatives: habit only (relies on noticing long sessions; Claude Code's
-  `/usage` on 2026-11-14 showed one session at 25 hours and 1,644 requests);
+- Alternatives: habit only (long sessions go unnoticed);
   skill wording only (the agent cannot see its context size); forking
   `minime-project-commit` to a cheaper model (it asks the user after the
   commit and needs main-session context, failing the fork criteria
@@ -410,6 +407,6 @@ current position.
   "Go" already says).
 - Consequences: one "go" can produce many commits without review by the user
   between them; the commit gates, the autopilot stop conditions and the
-  fresh-session nudge (Decision 17) still apply to each. The user chose to
-  keep the guard: "go" never approves an option that creates a tracked doc,
+  fresh-session nudge (Decision 17) still apply to each. Guard: "go" never
+  approves an option that creates a tracked doc,
   edits the project guide or reaches outside the repo.

@@ -16,7 +16,8 @@ quality (REQ-010), and host portability (REQ-004/011). Scope is governed by
    carry the shared contract into consumer sessions.
 2. `scripts/minime` is a stdlib Python CLI for cataloging, preflight,
    host installation, user-level hooks and audits. Python 3.14+ is required.
-   Read-only is the default; every write requires `--write`.
+   Read-only is the default; every write to the user account requires
+   `--write`, and `review-eval --run` alone uses a temporary folder.
 3. Host installation copies reusable `SKILL.md` files, and any flat
    `references/*.md`, into wrapper directories with generated
    `agents/openai.yaml`. Host roots are Codex

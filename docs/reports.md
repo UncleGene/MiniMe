@@ -1,8 +1,11 @@
 # JSON reports
 
 Commands run with `--json` print one JSON report to standard output, for
-scripts and agents. Each report carries a `schema_version`; this page lists
-the fields you can rely on. Commands are described in the
+scripts and agents. Two exceptions: `review-eval` without `--run` prints its
+fixture list as text, and any error (invalid arguments or a `MINIME_E_*`
+code) prints text to standard error with exit 2 and no JSON. Each report
+carries a `schema_version`; this page lists the fields you can rely on.
+Commands are described in the
 [CLI reference](cli.md).
 
 ## Skill Catalog Report
@@ -149,6 +152,27 @@ Important fields:
 - `contamination_findings`
 - `result`
 
+## Similar Skills Report
+
+Produced by `scripts/minime skills similar <skill-path> --json`.
+
+- `schema_version`, `command`, `mode`, `minime_version`
+- `source`: `path`, `name`, `description`
+- `scoring`, `catalog_size`
+- `matches`: up to five skills with a positive `score`
+
+## Review Eval Report
+
+Produced by `scripts/minime review-eval --run --json`.
+
+- `schema_version`, `command`, `skill`, `host`, `model`, `effort`, `tier`
+- `summary`: per layer, `defects` and `detected`, `controls` and
+  `false_positives`, and for stack-warning fixtures `uncovered` and `reported`
+- `fixtures`: one entry per fixture with its `id` and `outcome`
+
+The command exits 0 whenever the runs complete, even when fixtures were missed
+or a host run failed; read `summary` and each fixture's `outcome`.
+
 ## Transcript Audit Report
 
 Produced by:
@@ -160,11 +184,12 @@ scripts/minime transcript-audit --json
 Important fields:
 
 - `schema_version`, `command`, `mode`, `since`
-- `hosts`: per host `sessions`, `sessions_with_minime`, `minime_turns`
+- `hosts`: per host `sessions`, `sessions_with_minime`, `minime_turns`,
+  `review_eval_sessions` and `tokens`
 - `skill_loads`: loads per MiniMe skill
 - `finding_counts`: findings per type
 - `findings`: `type`, `host`, `project` (placeholder), `session` (short id),
   `turn`, `timestamp`, `detail`
 
-Reports must not be committed (Decision 8); placeholders are stable only
-within one run.
+Do not commit reports: they describe your local projects and sessions.
+Placeholders such as `project-1` are stable only within one run.

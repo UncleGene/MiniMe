@@ -8,6 +8,16 @@ It is built for one developer directing agents on a budget plan: a strict
 quality bar keeps agent-written slop from piling up cost and complexity, and
 keeps a project you may later share or open-source fit to show.
 
+**How it works.** Each skill is a Markdown procedure (`SKILL.md`, in the
+[Agent Skills](https://agentskills.io) format) that your agent host loads when
+a request matches it. A small Python CLI installs the skills into each host's
+user folder and audits the result. Optional hooks make the most important
+rules checkable instead of advisory.
+
+**Status:** version 0.1.0, early. Used mainly on Claude Code, with lighter
+use on Codex.
+Expect skill wording and hook rules to keep changing between versions.
+
 ## Goals
 
 1. **Production quality without babysitting.** Agents meet an explicit
@@ -48,7 +58,8 @@ keeps a project you may later share or open-source fit to show.
 ## Installation
 
 You need Python 3.14+ (standard library only) and at least one agent host
-whose user skills folder exists:
+whose user skills folder exists. If a folder is missing, create it first, for
+example `mkdir -p ~/.claude/skills`:
 
 | Host | Skills folder |
 |---|---|
@@ -60,7 +71,7 @@ whose user skills folder exists:
 Clone MiniMe once, anywhere you like, and install from that clone:
 
 ```sh
-git clone <repository-url> MiniMe
+git clone https://github.com/UncleGene/MiniMe.git
 cd MiniMe
 
 scripts/minime doctor                 # show version, Python and status
@@ -73,31 +84,9 @@ scripts/minime host-registration-audit --skills-root ~/.codex/skills
 ```
 
 Then start a new agent session so the host picks up the skills. Every command
-is read-only unless you pass `--write`.
-
-### Updating
-
-The clone is the single source. To update, pull and reinstall:
-
-```sh
-git pull && scripts/minime skills install --write
-```
-
-The installer copies each skill into the host folders instead of linking to
-the clone, for two reasons:
-
-- **Codex** does not load a symlinked skill file, and it needs a generated
-  `agents/openai.yaml` next to each skill.
-- **Claude Code** gets a modified copy of two skills, `minime-code-reviewer`
-  and `minime-doc-check`: the installer adds settings that run them as a
-  subagent on a cheaper model.
-
-The other Claude Code skills, and all OpenCode and GitHub Copilot skills, are
-identical to the clone. Linking those instead of copying them is a candidate
-in the plan, not yet available.
-
-MiniMe installs only for your user account. There is no per-project install,
-because MiniMe never writes into your projects.
+is read-only unless you pass `--write`, except `review-eval --run`, which runs
+your agent host on throwaway test repositories (see the
+[CLI reference](docs/cli.md)).
 
 ### Optional hooks
 
@@ -115,13 +104,46 @@ scripts/minime codex-hook install --write   # Codex commit gate
 - Codex runs a user-level hook only after you trust it in `/hooks`.
 - `uninstall --write` removes a hook again.
 
+### Updating
+
+The clone is the single source. To update, pull and reinstall the skills and
+every hook you enabled, then start a new agent session:
+
+```sh
+git pull && scripts/minime skills install --write
+scripts/minime git-hook install --write      # each hook only if you enabled it
+scripts/minime claude-hook install --write
+scripts/minime codex-hook install --write    # Codex may ask you to trust it again in /hooks
+```
+
+The installer copies the skills and hooks rather than linking them, so a pull
+changes nothing until you reinstall
+([why](docs/development.md#why-skills-are-copied)).
+
+The installer writes only to user-level host folders; there is no per-project
+install. In your projects, skills direct your agent to create or change
+ordinary project files, such as a guide, requirements or a plan, but never
+add MiniMe-specific files.
+
+### Uninstalling
+
+```sh
+scripts/minime git-hook uninstall --write
+scripts/minime claude-hook uninstall --write
+scripts/minime codex-hook uninstall --write
+```
+
+There is no skill uninstall command: delete the `minime` and `minime-*`
+folders from each host's skills folder (see the table above), then delete the
+clone.
+
 ## Using MiniMe in a project
 
 Talk to your agent as usual. Hosts pick skills from their descriptions, and
 you can name one explicitly: "use minime-replan", `/minime-replan` in Claude
 Code or `$minime-replan` in Codex. Skills work from the project's own guide
-(`AGENTS.md`, `CLAUDE.md`), requirements and plan; MiniMe never adds files of
-its own to the project.
+(`AGENTS.md`, `CLAUDE.md`), requirements and plan; MiniMe adds no files of its
+own to the project.
 
 ### Start here: `minime`
 
@@ -144,6 +166,24 @@ spans more than one step, or when you just want to know what to do next:
 Go to a specific skill directly only when the task clearly needs just that
 skill, as in the table below.
 
+### A first session
+
+Open your agent in the project you want to work on (not in the MiniMe clone):
+
+```text
+you:   /minime what next?
+agent: reads the guide, plan and git state, checks for unsettled decisions
+       and ends with "Recommended next action: <one step>"
+you:   go
+agent: implements the step, runs doc sync, scope check, simplification,
+       review and your project's tests, commits, and continues with the
+       next step until a decision needs you
+```
+
+When the agent needs a decision it asks one question at a time, with named
+options, their pros and cons and a recommendation, in the host's choice
+dialog where there is one.
+
 ### Common workflows
 
 | Situation | Start with | What happens |
@@ -162,8 +202,8 @@ skill, as in the table below.
 
 A typical feature loop, which `minime` runs for you: triage the request, pick
 the step, implement, then commit through `minime-project-commit`, which runs
-the checks. Documentation-only changes that touch no requirement, decision or
-safety text get a lighter set of checks.
+the checks. Documentation-only changes that touch no requirement, decision,
+acceptance or safety text get a lighter set of checks.
 
 ### All skills
 
@@ -227,9 +267,21 @@ Add `--json` to any audit for a machine-readable report.
   does not detect renamed copies of skill text.
 - `skills install --write`, `git-hook install|uninstall --write` and
   `claude-hook|codex-hook install|uninstall --write` are the only write
-  commands, all at user level; everything else is read-only. Installation
+  commands, all at user level; everything else is read-only apart from
+  `review-eval --run`, which uses a temporary folder. Installation
   checks every destination before writing, but there is no automated
   rollback.
+
+## Contributing
+
+Issues and pull requests are welcome. The [developer guide](docs/development.md)
+covers the repository layout, the checks every change must pass and how to
+change a skill. Agents working on MiniMe itself follow
+[`AGENTS.md`](AGENTS.md).
+
+## License
+
+[MIT](LICENSE).
 
 ## Documentation
 

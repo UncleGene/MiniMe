@@ -22,11 +22,11 @@ supported (Decision 4). Python 3.14+ is required for the CLI and tests.
   audits, `review-eval` and hooks; a test adds a hypothetical host through it
   alone (REQ-011).
 - User-level enforcement: the slop-scan git hook and the agent commit gate for
-  Claude Code and Codex. These and skill installation are the only CLI writes.
-- Claude Code question hooks (Decision 13) accepted 2026-11-16: in the week
-  after install, local transcripts show no multi-question choice-UI call
-  reaching the user in a MiniMe session (baseline 11 of 187; the hook blocked
-  2) and `prose-question` findings down from 3 to 0.
+  Claude Code and Codex. These and skill installation are the only CLI writes,
+  besides `review-eval --run`'s temporary folder.
+- Claude Code question hooks (Decision 13) are in place: one question per
+  choice-UI call, in the decision-prompt shape, and no prose question at the
+  end of a MiniMe turn.
 - `transcript-audit` reports skill loads, token counts and observable contract
   misfires from local transcripts, excluding `review-eval` runs. Pricing and
   cost per gated commit are measured with the maintainer's local tooling, which
@@ -81,8 +81,7 @@ cheaper routing must not raise the misfire counts.
 
 Measure the fresh-session nudge, installed on 2026-11-16: after 2026-11-23,
 run the local cost audit and `transcript-audit` against its acceptance check.
-Misfire baseline, 2026-11-10 to 2026-11-16 (turns cut off mid-tool are no
-longer counted as `no-next-action`): Claude Code `no-next-action` 1,
+Misfire baseline, 2026-11-10 to 2026-11-16: Claude Code `no-next-action` 1,
 `prose-question` 0, `commit-unverified` 119 (101 in one project); Codex
 `no-next-action` 6, against 1 the week before (Codex has no Stop hook).
 
@@ -90,7 +89,7 @@ longer counted as `no-next-action`): Claude Code `no-next-action` 1,
 
 The local cost tooling attributes each gated turn to its session model, the
 main-context model that wrote most of its output. List price, subagents
-included, 2026-11-01 to 2026-11-07, excluding a test-less content repo:
+included, 2026-11-01 to 2026-11-07, excluding one project without tests:
 
 | Session model | Gated turns | Median per turn | Median per shell command |
 |---|---|---|---|
@@ -101,7 +100,7 @@ included, 2026-11-01 to 2026-11-07, excluding a test-less content repo:
 Compare cost per command as well as per turn: a turn that runs more checks
 costs more without costing more per unit of work.
 
-Misfires in MiniMe turns over the same window, excluding the content repo:
+Misfires in MiniMe turns over the same window, excluding that project:
 Claude Code `commit-unverified` 10 and `no-next-action` 3 in 65; Codex
 `no-next-action` 1 and `commit-unverified` 0 in 55, 18 of them copies a resumed
 session writes again.
@@ -110,7 +109,7 @@ Opus 5.5 cost by context size per request, Claude Code, 2026-11-07 to
 2026-11-14, all projects: under 300k tokens 33.5%, 300k–600k 36.5%, over 600k
 30.1%. Resumes after more than an hour idle re-cached 10.2M tokens, about 5%
 of Opus cost. Median cost per gated Opus 5.5 commit turn in the same window:
-$3.59 over 218 turns, content repo included, so not comparable with the
+$3.59 over 218 turns, that project included, so not comparable with the
 table above; the nudge's acceptance compares against this figure
 (Decision 17).
 
@@ -122,7 +121,7 @@ with the full project gates.
 | Milestone | Goal | Acceptance |
 |---|---|---|
 | Fresh-session nudge | In Claude Code, an agent hook recommends a handoff, `/clear` and `minime-orient` when the last request's context exceeds about 300k tokens after a commit (the Stop hook, shared with the post-commit menu, returns the turn once per commit) or on the first prompt after more than an hour idle (a new `UserPromptSubmit` hook adds context); it never blocks a tool call or a commit (Decision 17). Installed 2026-11-16. | Hook tests cover both triggers, the threshold boundary, silence below it and one Stop return per commit with no loop; after a week installed, the local cost audit shows the share of Opus cost above 300k context below the 67% baseline (Cost baseline), and neither the median cost per gated turn nor the misfire counts rise. |
-| Data commit tier | A consuming repo marks its record paths with the neutral `commit-data` git attribute; `minime-project-commit` keeps them out of the doc, scope, simplifier and review checks, and a commit of data paths only takes the data tier, which runs only the project's full check; the Claude Code and Codex gate verifies the attribute for every staged path (Decisions 7/13). Requested from a data-heavy consuming project: of 298 commits, 87 touched only data, and every data commit ran the reviewer fork and the simplifier on record diffs. First install (2026-11-17) failed acceptance: 52 of 299 commits there were blocked, because the hook often runs before a tier line in the same reply is recorded, so an earlier commit's `data` line decided later ones; 22 more used `git -C` or chained commands. Since 2026-11-20 the gate infers the data tier from the staged attributes, a tier line covers one commit (Claude Code only; Codex transcripts are not parsed for commit results, so a Codex `light` line still lasts the turn) and `git -C <dir> commit` is accepted. | Hook tests cover all-data, a non-data path, an unset path inside a data folder, an empty staged list, no tier line, a tier line used by an earlier commit, `-C` and commands beyond the index; after reinstall, that project's transcripts show no commit-gate block and no reviewer or simplifier run on data-only commits, and mixed commits still run the checks on their non-data part. |
+| Data commit tier | A consuming repo marks its record paths with the neutral `commit-data` git attribute; `minime-project-commit` keeps them out of the doc, scope, simplifier and review checks, and a commit of data paths only takes the data tier, which runs only the project's full check; the Claude Code and Codex gate infers the data tier from the attribute on every staged path (Decisions 7/13). A tier line covers one commit in Claude Code; Codex transcripts are not parsed for commit results, so a Codex `light` line lasts the turn. Reinstalled 2026-11-20. | A week after reinstall, the data-heavy consuming project's transcripts show no data-tier commit-gate block and no reviewer or simplifier run on data-only commits, and mixed commits still run the checks on their non-data part. |
 | Post-commit menu and prose choices | Commits in a compacted session ended without the post-commit "what next?" menu that `minime-project-commit` requires, and options came as prose ("type X to choose") instead of the choice UI. Decide (open, for `minime-decision-prompt`): whether a hook enforces the menu, exempting autopilot runs, including those a "go" reply starts (Decision 18); whether the menu offers "Stop and reflect" after N commits since the last reflection, and the value of N. The menu-enforcement and prose-choice checks both judge how a MiniMe turn ends, so they share the Stop hook. In scope: `transcript-audit` finding kinds for a post-commit turn without a menu and for a prose choice. | The new finding kinds exist with tests, prose-choice false-positive samples pass, and hook cases cover the enforcement, if any, and the exemption the decision chose; after install, `transcript-audit` shows neither finding kind. |
 | More stack profiles (lower priority) | Profiles and fixtures in order of recorded demand: sessions outside MiniMe and review-eval whose review reported the stack uncovered, counted on 2026-10-25. Ruby with Rails and ERB first (18 and 17 sessions), then Lua (16), then JavaScript (10). TypeScript (3), React and Vitest (0) wait until the warnings show demand; their marker rows in `stacks.md` stay so the warnings keep counting (Decision 11). | Each layer's fixtures meet the pass threshold on both verified hosts. |
 
@@ -161,6 +160,11 @@ User requests, not scheduled. Each goes through
   installer must link them and `host-registration-audit` must accept the
   links, which it now blocks on every root. New, renamed or forked skills
   still need `skills install --write`.
+- OpenCode may list every skill twice: the installer writes to
+  `~/.config/opencode/skills`, and a code comment in `HOSTS` says OpenCode
+  also reads `~/.claude/skills`. Check OpenCode's skill discovery against its
+  documentation first; if it reads both, stop installing one of them for
+  OpenCode and update the host table, README and CLI reference.
 - Per-project install (for example `<project>/.claude/skills`): not supported.
   It puts MiniMe files in a consuming repo, which Decision 3 and REQ-002
   forbid, so it needs that decision changed first. Today

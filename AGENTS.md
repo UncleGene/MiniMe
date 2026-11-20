@@ -20,7 +20,9 @@ MiniMe trace may land in them (Decision 3).
 
 Current CLI behavior is read-only by default. User-level installation with
 `--write` (host skills, the slop-scan git hook and the agent commit gate) is
-the only CLI write path; the CLI does not edit consuming repos.
+the only CLI write path, apart from `review-eval --run`, which builds and
+deletes throwaway repos in a temporary folder; the CLI does not edit
+consuming repos.
 
 Authority: accepted user decisions override inherited guidance. Current
 requirements live in `docs/requirements.md`, architecture in `docs/concepts.md`,
@@ -118,9 +120,9 @@ and YAGNI before committing:
 Apply this contract to every MiniMe skill flow. Each reusable skill ends with an
 identical `## Interaction rules` section carrying its consumer-facing subset, so
 installed skills keep it outside this repo (Decision 6); edit all copies
-together. Reflection and checkpoint rules below are MiniMe-only. It applies equally on Codex, Claude Code, OpenCode and GitHub
-Copilot, whatever model the host runs; host differences do not weaken the
-workflow contract.
+together. Reflection and checkpoint rules below are MiniMe-only. It applies
+equally on Codex, Claude Code, OpenCode and GitHub Copilot, whatever model
+the host runs; host differences do not weaken the workflow contract.
 
 **Every response must end with `Recommended next action: <one concrete next step>`.
 No exceptions — not for simple fixes, not for terminology changes, not for doc
@@ -260,12 +262,13 @@ Invoke by reading the skill file and following its procedure.
 **Cross-skill delegation:** When a procedure step or gate lists another skill
 by name (e.g. `minime-code-reviewer`), delegate to it — read that skill's file
 and follow its full procedure, or invoke it through the host's skill mechanism
-where the calling step says so (fresh-context skills, Decision 14). Do not approximate the skill's behavior from
-memory or collapse its procedure into an inline summary. Each skill owns its
-own procedure; delegation means executing it, not remembering it. If the
-delegated gate, check, or workflow step requires no human input, execute it in
-the same turn and continue through the chain until the next step genuinely
-requires a user decision, external approval, or unavailable environment.
+where the calling step says so (fresh-context skills, Decision 14). Do not
+approximate the skill's behavior from memory or collapse its procedure into
+an inline summary. Each skill owns its own procedure; delegation means
+executing it, not remembering it. If the delegated gate, check, or workflow
+step requires no human input, execute it in the same turn and continue
+through the chain until the next step genuinely requires a user decision,
+external approval, or unavailable environment.
 
 | Intent | Skill |
 |---|---|

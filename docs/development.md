@@ -21,18 +21,17 @@ covers the same ground for people.
 - `docs/` — CLI reference, reports, troubleshooting, requirements,
   architecture, decisions, plan and learnings; `docs/templates/` holds the
   optional host verification report template.
-- `CLAUDE.md`, `GEMINI.md` — surface adapters that delegate to `AGENTS.md`.
+- `CLAUDE.md`, `GEMINI.md` — short files that point agents to `AGENTS.md`.
 
 ## Environment
 
 The CLI needs only Python 3.14+. Development checks use Ruff 0.15.12, mypy
-1.20.2 and, for the skill-size (distillation) check in
-[Changing a skill](#changing-a-skill), pytest 9.0.3:
+1.20.2:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ruff==0.15.12 mypy==1.20.2 pytest==9.0.3
+python -m pip install ruff==0.15.12 mypy==1.20.2
 ```
 
 ## Checks
@@ -54,7 +53,24 @@ scripts/minime host-registration-audit --skills-root ~/.config/opencode/skills -
 scripts/minime host-registration-audit --skills-root ~/.copilot/skills --json
 ```
 
-Mypy uses its default checks. Host audits need the installed surfaces.
+Mypy uses its default checks. Run the host audits for the hosts whose skills
+folder you have installed into; a missing folder reports
+`host-skills-root-missing`.
+
+## Why skills are copied
+
+`skills install --write` copies each skill into the host folders instead of
+linking to the clone:
+
+- Codex does not load a symlinked skill file, and it needs a generated
+  `agents/openai.yaml` next to each skill.
+- Claude Code gets a modified copy of `minime-code-reviewer` and
+  `minime-doc-check`: the installer adds frontmatter that runs them as a
+  subagent on a cheaper model.
+
+The other Claude Code skills, and all OpenCode and GitHub Copilot skills, are
+identical to the clone. Linking those instead is a candidate in the
+[plan](implementation-plan.md#candidate-install-changes).
 
 ## Changing a skill
 
@@ -66,7 +82,7 @@ Mypy uses its default checks. Host audits need the installed surfaces.
 
    ```sh
    scripts/minime skills install-check skills/<name>
-   python -m pytest tests/ -k test_target_reusable_skills_are_token_conscious
+   python -m unittest tests.test_minime.TokenConsciousSkillTests
    scripts/minime skills install --write
    ```
 

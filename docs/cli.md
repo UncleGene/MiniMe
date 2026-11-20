@@ -7,7 +7,10 @@ Every command is read-only unless you pass `--write`. Only four commands
 write, all to your user account and never to a project:
 `skills install --write`, `git-hook install|uninstall --write`,
 `claude-hook install|uninstall --write` and
-`codex-hook install|uninstall --write`. Before writing, the installer
+`codex-hook install|uninstall --write`. One exception needs no flag:
+`review-eval --run` builds throwaway git repositories in a temporary folder,
+deletes them afterwards, and runs your agent host, which spends plan quota.
+Before writing, the installer
 validates every skill and every destination, and it writes nothing if any
 check fails. Most commands accept `--json`; see [JSON reports](reports.md).
 
@@ -95,7 +98,7 @@ The name and description rules the validator applies are listed under
 
 ### `scripts/minime git-hook install|uninstall`
 
-Installs or removes the user-level slop-scan pre-commit hook (Decision 12).
+Installs or removes the user-level slop-scan pre-commit hook.
 
 ```sh
 scripts/minime git-hook install
@@ -112,7 +115,7 @@ Behavior:
   `core.hooksPath` that points elsewhere.
 - The scan blocks a commit when added lines in staged Python, JS/TS or Ruby
   files contain any of:
-  - `TODO`, `FIXME` or `XXX`, or `NotImplementedError`;
+  - `TODO`, `FIXME` or `XXX`, or `raise NotImplementedError`;
   - skipped or focused tests;
   - blanket suppressions (`# type: ignore` or `# noqa` without a code,
     `@ts-ignore`, `@ts-nocheck`, and `eslint-disable` or `rubocop:disable`
@@ -128,7 +131,7 @@ Behavior:
 
 ### `scripts/minime claude-hook install|uninstall`
 
-Installs or removes the user-level Claude Code commit gate (Decision 13).
+Installs or removes the user-level Claude Code commit gate.
 
 ```sh
 scripts/minime claude-hook install
@@ -206,10 +209,10 @@ Behavior:
   (`stop_hook_active`).
 - After a compaction in a session that loaded a MiniMe skill, the
   `SessionStart` hook prints a reminder, added as context, that those skills
-  are still in force and the step-0 ledger is due. Until a main-thread reply
+  are still in force and the agent must restate its orchestration ledger. Until a main-thread reply
   starts a line with `Ledger:` (or `Orchestration ledger:`), the `Stop` hook
   blocks each stop once.
-- Fresh-session nudge (Decision 17), in a session that loaded a MiniMe skill
+- Fresh-session nudge, in a session that loaded a MiniMe skill
   when the last main-thread request carried more than 300k context tokens:
   the `Stop` hook blocks once at the end of a turn that ran a `git commit`
   whose result was not an error, unless its last reply already mentions `/clear`; the
@@ -220,7 +223,7 @@ Behavior:
 
 ### `scripts/minime codex-hook install|uninstall`
 
-Installs or removes the same commit gate for Codex (Decision 13).
+Installs or removes the same commit gate for Codex.
 
 ```sh
 scripts/minime codex-hook install --write
@@ -241,7 +244,7 @@ Behavior:
 ### `scripts/minime host-registration-audit`
 
 Audits host/user-level MiniMe skill registration without reading or writing any
-product repo.
+project.
 
 ```sh
 scripts/minime host-registration-audit
@@ -271,10 +274,10 @@ Behavior:
 
 ### `scripts/minime transparent-audit --repo <path>`
 
-Audits one or more product repos for transparent MiniMe consumption.
+Checks that one or more projects carry no MiniMe trace.
 
 ```sh
-scripts/minime transparent-audit --repo /path/to/product-repo
+scripts/minime transparent-audit --repo /path/to/project
 scripts/minime transparent-audit --repo /path/to/repo-a --repo /path/to/repo-b --json
 ```
 
@@ -299,7 +302,7 @@ Behavior:
 ### `scripts/minime transcript-audit`
 
 On-demand, read-only scan of local Claude Code and Codex transcripts for MiniMe
-skill use, token counts and observable contract misfires (Decision 10).
+skill use, token counts and observable contract misfires.
 
 ```sh
 scripts/minime transcript-audit
@@ -322,8 +325,8 @@ Behavior:
   host, split between the main context and subagent transcripts (Claude Code
   only; Codex sessions all count as main). Claude Code records that repeat a
   message's usage are counted once; Codex usage comes from increases in its
-  cumulative totals. Pricing, and cost per gated change, are measured with the
-  maintainer's local tooling, which is not published (REQ-010).
+  cumulative totals. The report has token counts only; it does not price
+  them.
 - Excludes `review-eval` runs, recognized by a prompt that starts with the
   review-eval prompt, and the subagents they fork; their count is reported per
   host.
@@ -370,14 +373,16 @@ Behavior:
   and nonempty description; rejects outside paths and source symlinks.
 - Runs contamination checks for local paths and secret-looking tokens on
   `SKILL.md` and every file in `references/`.
-- Redacts secret-looking token details, including local-path snippets and metadata errors.
+- Redacts secret-looking token values, also inside local-path findings and
+  metadata errors. A local-path finding still shows the path and the rest of
+  its line, so inspect a report before sharing it.
 - Writes nothing.
 
 ### `scripts/minime skills similar <skill-path>`
 
 Read-only analog search. Ranks local target-reusable skills by token overlap
-against a source `SKILL.md`. Used during the generalization workflow to surface
-existing analogs before adapting an external skill.
+against a source `SKILL.md`. Use it before writing or adapting a skill, to find
+existing skills that already cover the need.
 
 ```sh
 scripts/minime skills similar skills/minime
@@ -396,13 +401,13 @@ Behavior:
   drawn from name + description; common English and skill-vocabulary stopwords
   filtered.
 - Prints up to five matches with `score > 0`; prints "No similar skills found."
-  when none qualify. `--json` includes the full ranked list under `matches` and
-  the full source descriptor under `source`.
+  when none qualify. `--json` gives the same matches under `matches` and the
+  source's path, name and description under `source`.
 - Writes nothing.
 
 ### `scripts/minime review-eval`
 
-Scores headless reviews of planted-defect fixtures (Decisions 9/11).
+Scores headless reviews of planted-defect fixtures.
 
 ```sh
 scripts/minime review-eval --host claude
@@ -416,7 +421,7 @@ Behavior:
 
 - `--skill` picks the skill scored: `code-reviewer` (default) on
   `evals/review/`, or `doc-check` on `evals/doc-check/`, whose defects are
-  stale lines, often in documents the change left untouched (Decision 14).
+  stale lines, often in documents the change left untouched.
 - Fixtures live in `evals/<skill root>/<layer>/`. Each layer has a `base/` project,
   and each fixture has a `change/` overlay plus an `expected.json` answer key.
   Defect keys locate the planted defect by a text snippet, or list several
@@ -430,9 +435,9 @@ Behavior:
   uncommitted diff. It then runs one review per fixture, in parallel (`--jobs`,
   default 4):
   - Claude Code: `claude -p` with installed hooks disabled, restricted to read,
-    search, skill and `git diff` tools. A `Stop` hook's added reply would
+    search, skill, `git diff` and `git status` tools. A `Stop` hook's added reply would
     otherwise replace the review as the printed result.
-  - Codex: `codex exec -s read-only --ephemeral`.
+  - Codex: `codex exec -s read-only --skip-git-repo-check --ephemeral`.
 
   Every run spends host plan quota, and fixture files are never modified.
 - The review must end with a JSON block of findings. A defect is found when a
@@ -444,3 +449,6 @@ Behavior:
   `unparsed`.
 - The scored skill is the installed host skill, so run `skills install --write`
   first.
+- `--timeout <seconds>` limits each review run; `--fixtures <dir>` reads
+  fixtures from another folder; `--host-bin <path>` runs a specific `claude`
+  or `codex` executable.

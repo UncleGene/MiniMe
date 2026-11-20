@@ -27,8 +27,8 @@ points to a broken checkout; run `git status`.
 
 **`MINIME_E_INSTALL_CONTAMINATION`: a skill failed the privacy check.**
 A skill contains a local path or a secret-looking token. Run
-`scripts/minime skills install-check skills/<name> --json` for the redacted
-findings, clean the skill and retry. No host folder is written when this
+`scripts/minime skills install-check skills/<name> --json` for the findings
+(token values are redacted; local paths are shown), clean the skill and retry. No host folder is written when this
 fails.
 
 **Blocked destinations.**
@@ -89,9 +89,10 @@ audit.
 
 **`host-skill-missing`, `host-skill-stale-skill-md`, `host-skill-stale-references`.**
 The host folder is missing a skill or holds an old copy, usually after a
-`git pull` without reinstalling. Reinstall. The other `host-skill-missing-*`
-findings (a wrapper without its `SKILL.md` or `agents/openai.yaml`) are fixed
-the same way.
+`git pull` without reinstalling. Reinstall. A wrapper missing only
+`agents/openai.yaml` is fixed the same way. A wrapper without its `SKILL.md`
+needs `scripts/minime skills install --write --force`; check first that the
+folder holds nothing of yours.
 
 **`host-skill-stale-openai-yaml`.**
 `agents/openai.yaml` differs from what MiniMe generates, including local edits
@@ -153,9 +154,9 @@ not run either, so the agent stages in its own call. A data commit skips
 the checks only when every staged path has the `commit-data` attribute (after
 a `Commit tier: data` line the message names the others; mark them in
 `.gitattributes` if they are data, or commit them in the full tier) and the
-command is one of the exact shapes the message lists: a plain
-`git [-C <dir>] commit -m <message>` or `-F <file>` alone in its
-call, with the message in single quotes (several lines allowed) or in a file.
+command is one of the exact shapes the message lists, alone in its call (see
+the [CLI reference](cli.md#scriptsminime-claude-hook-installuninstall)): in
+short, `git [-C <dir>] commit -m '<message>'` or `-F <file>`.
 
 **The agent recommends `/clear` after a commit or a long break.**
 This is the fresh-session nudge. Once a MiniMe session's context passes 300k

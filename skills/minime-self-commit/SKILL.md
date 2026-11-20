@@ -23,7 +23,7 @@ Run these checks first, before invoking `minime-project-commit`.
   that is not reinstalled to all surfaces is a commit defect.
 
 - For diffs that add or modify any skill file: run the distillation check —
-  `python -m pytest tests/ -k test_target_reusable_skills_are_token_conscious`.
+  `python -m unittest tests.test_minime.TokenConsciousSkillTests`.
   A skill exceeding the 4× verbosity ceiling (computed from the current
   catalog median by the test) or containing 2+ transcript-like step headers
   (`### Now do/let/we/you` or `### Next, <word>`) must be distilled before the
