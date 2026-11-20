@@ -16,8 +16,8 @@ Produce a precise, self-contained task brief.
 ## Two possible outputs — check user-facing choices first
 
 Before selecting a slice, scan the next plan item and its spec for
-unresolved choices — design, scope, commit shape, or any fork where a
-wrong guess would change what gets built:
+unresolved choices — design, scope, or any fork where a wrong guess would
+change the user's outcome, timing, data, cost or maintenance:
 
 **Output A — User-facing choice** (do this first when applicable):
 - Delegate to `minime-decision-prompt` for any user-facing choice. Read its
@@ -32,7 +32,9 @@ wrong guess would change what gets built:
 
 Filter step: drop any question whose answer is dictated by spec or
 convention (e.g., "do you agree with the slice?" when the spec is
-unambiguous). Restate the slice and wait; do not bundle it as a question.
+unambiguous), and settle a choice that only places or names code (see
+`minime-decision-prompt`), stating it in the slice. Restate the slice and
+wait; do not bundle it as a question.
 
 Negative example — refuse this pattern:
 > "Here are the slice details. (a) Do you approve? (b) What commit shape?

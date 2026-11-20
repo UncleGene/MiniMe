@@ -336,7 +336,11 @@ current position.
   line that says so and records the improvement classification, and a
   reversible choice with a conventional default is stated, not asked. Standard
   states the four intake checks, including a premise check. High runs full
-  triage and impact analysis.
+  triage and impact analysis. At any tier, a choice that only places or names
+  code (reversible, local, and touching no public interface, data format,
+  module boundary or accepted decision) is stated, not asked, and every
+  question frames its options by their effect on the user's goals; the rule
+  lives in `minime-decision-prompt`.
   When in doubt, the higher tier. `minime-decision-prompt` explains any new
   mechanism or cost before the options. Commit gate tiers (Decision 7) are
   unchanged.

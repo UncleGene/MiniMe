@@ -11,9 +11,9 @@ metadata:
 
 
 Use when the agent would otherwise pick silently between materially
-different paths. Do not resolve the question — stop and wait. The one
-exception is a low-tier reversible choice with a conventional default (see
-Rules), which is stated instead of asked.
+different paths. Do not resolve the question — stop and wait. Two kinds of
+choice are stated instead of asked (see Rules): a low-tier reversible choice
+with a conventional default, and a choice that only places or names code.
 
 ## Ambiguity triggers
 
@@ -21,7 +21,8 @@ Rules), which is stated instead of asked.
   artifact, implementation, validation, or handoff — including a clarifying
   question that surfaces mid-flow, outside every other trigger below. This
   trigger is the catch-all: a question does not escape the required shape by
-  arising spontaneously rather than from a listed trigger.
+  arising spontaneously rather than from a listed trigger. Whether to ask at
+  all follows the Rules below.
 - Spec gap that implementation would resolve by guessing.
 - Two viable architectural paths with different long-term cost.
 - Scope expansion beyond the user's request.
@@ -36,7 +37,8 @@ Rules), which is stated instead of asked.
   cost or term the options depend on that the user has not seen this session;
   say whether a cost is one-time or recurring and where it falls.
 - **Question:** one sentence.
-- **Why it matters:** reversibility, blast radius, what gets locked in.
+- **Why it matters:** the effect on the user's goals, reversibility, blast
+  radius, what gets locked in.
 - **Options:** minimum two, each with:
   - Name, pros, cons, cost, what it locks in.
 - **Recommendation:** one option with confidence (low/medium/high).
@@ -47,6 +49,12 @@ Rules), which is stated instead of asked.
 - When a choice is low risk by the definition in
   `minime-course-correction-triage`, reversible and has a conventional default,
   state the default and proceed instead of asking.
+- Ask about goals, not mechanics: ask only when the answer changes the user's
+  outcome, timing, data, cost or long-term maintenance, and frame each option
+  by that effect on their stated goals. A choice that only places or names
+  code — reversible, local, and touching no public interface, data format,
+  module boundary or accepted decision — is settled by the agent and stated
+  with its reason. When unsure, ask.
 - Before the first design question on a request, confirm its premise holds,
   or record it as unverified, never as failed (the premise check in
   `minime-course-correction-triage`); asking how to build something that may

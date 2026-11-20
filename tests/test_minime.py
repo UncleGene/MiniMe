@@ -2356,7 +2356,10 @@ class DocumentationConsistencyTests(unittest.TestCase):
             "when in doubt, pick the higher tier", "commit gate tiers (light or full) are chosen separately"],
         "skills/minime-decision-prompt/SKILL.md": [
             "explain in plain terms any mechanism, cost or term",
-            "when a choice is low risk by the definition in `minime-course-correction-triage`, reversible and has a conventional default, state the default and proceed"],
+            "when a choice is low risk by the definition in `minime-course-correction-triage`, reversible and has a conventional default, state the default and proceed",
+            "ask about goals, not mechanics: ask only when the answer changes the user's outcome",
+            "touching no public interface, data format, module boundary or accepted decision",
+            "when unsure, ask", "two kinds of choice are stated instead of asked"],
         "AGENTS.md": ["scale it to the change's risk tier", "a low-risk change states one intake line",
                       "in the low risk tier, a reversible choice with a conventional default is stated, not asked"],
     }

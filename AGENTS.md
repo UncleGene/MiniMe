@@ -185,7 +185,7 @@ check is non-trivial.
   stated impact — never raw prose.** This holds for any question whose answer
   would change an artifact, implementation, validation, or handoff, regardless
   of which skill is running or whether a listed ambiguity trigger fired, except
-  the low-tier stated default below.
+  the stated choices below.
   Before asking, read `minime-decision-prompt` and follow its procedure, then
   render the result per the structured-choice rule below. Reject these shapes:
   a bare open question ("How would you like me to handle X?"), a yes/no with
@@ -196,7 +196,8 @@ check is non-trivial.
   asked.
 - Do not silently choose between materially different interpretations when the
   answer would change the artifact, implementation, validation, or handoff; a
-  stated low-tier default is not silent.
+  stated low-tier default, or a stated choice that only places or names code
+  (see `minime-decision-prompt`), is not silent.
 - Examine every user input and user-identified problem for an opportunity to
   improve MiniMe's project guidance, requirements, implementation, tests, or
   reusable skills. Route actionable opportunities through the appropriate
